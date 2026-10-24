@@ -1,0 +1,9 @@
+# scratch
+*.log
+/tmp/
+
+# benchmark output that is regenerated rather than reviewed
+bench/out-*
+bench/*.bin
+bench/tree/
+bench/big/

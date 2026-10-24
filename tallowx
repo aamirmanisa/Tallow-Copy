@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# tallowx launcher — the tool is a Tallow program executed by the Tallow engine.
+#
+# The engine has no native lowering for the file-metadata and copy primitives
+# this tool needs (see docs/ENGINE-FINDINGS.md #1), so the program runs on the
+# interpreter. `tallow run` is therefore the whole launcher.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "${TALLOW:-tallow}" run "$HERE/tallowx.tl" -- "$@"
