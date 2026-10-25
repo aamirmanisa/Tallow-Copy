@@ -111,6 +111,18 @@ run copy "$ROOT/rsrc" "$ROOT/rdst"
 if grep -q 'resumed:' "$ROOT/out.log"; then fail "resume ran without --resume"; else pass "resume is opt-in: no --resume, no resume"; fi
 if cmp -s "$ROOT/rsrc/sub/big.bin" "$ROOT/rdst/sub/big.bin"; then pass "opt-out copy still produced the right bytes"; else fail "opt-out copy produced wrong bytes"; fi
 
+# 4c · --checksum: a destination that matches on size and mtime but not bytes
+mkdir -p "$ROOT/csrc" "$ROOT/cdst"
+head -c 2097152 /dev/urandom > "$ROOT/csrc/c.bin"
+touch -d '2021-06-01 08:00:00' "$ROOT/csrc/c.bin"
+cp -p "$ROOT/csrc/c.bin" "$ROOT/cdst/c.bin"
+printf 'X' | dd of="$ROOT/cdst/c.bin" bs=1 seek=5000 conv=notrunc status=none 2>/dev/null
+touch -r "$ROOT/csrc/c.bin" "$ROOT/cdst/c.bin"   # hide the damage from size+mtime
+run copy "$ROOT/csrc" "$ROOT/cdst"
+if cmp -s "$ROOT/csrc/c.bin" "$ROOT/cdst/c.bin"; then fail "plain copy claims it repaired a same-size same-mtime file"; else pass "plain copy skips a same-size same-mtime corruption (documented)"; fi
+run copy --checksum "$ROOT/csrc" "$ROOT/cdst"
+if cmp -s "$ROOT/csrc/c.bin" "$ROOT/cdst/c.bin"; then pass "--checksum finds and repairs it"; else fail "--checksum did not repair the corruption"; fi
+
 # 5 · byte-level resume: a truncated destination is completed, not restarted
 mkdir -p "$ROOT/rsrc/sub" "$ROOT/rdst/sub"
 head -c 12582912 /dev/urandom > "$ROOT/rsrc/sub/big.bin"      # 12 MiB, over RESUME_MIN

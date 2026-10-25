@@ -289,7 +289,7 @@ fn add_stats(a: RunStats, b: RunStats) -> RunStats {
     }
 }
 
-fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bool, allow_resume: bool) -> Result<RunStats> {
+fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bool, allow_resume: bool, checksum: bool) -> Result<RunStats> {
     let job: Job = enumerate(src)?
     let root = job.root
     let files = job.targets
@@ -314,6 +314,12 @@ fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bo
             let b = fs.stat(to)?
             if a.size == b.size && a.modified_at == b.modified_at {
                 already = true
+                // Size and mtime are a cheap guess, not proof: a destination
+                // corrupted in place keeps both. --checksum pays two hashes to
+                // turn the guess into a fact before skipping.
+                if checksum && Transfer.hash(from) != Transfer.hash(to) {
+                    already = false
+                }
             }
         }
 
@@ -430,6 +436,7 @@ fn usage() {
     print("  tallowx verify SRC DST")
     print("")
     print("  --resume     complete a short destination from a hash-verified prefix")
+    print("  --checksum   skip only after hashing both sides (catches in-place corruption)")
     print("  --no-verify  skip BLAKE3 read-back verification (faster; verifies nothing)")
     print("  --json       one machine-readable summary line")
 }
@@ -456,6 +463,7 @@ fn main() {
     let verify = !has_flag(argv, "--no-verify")
     let json = has_flag(argv, "--json")
     let allow_resume = has_flag(argv, "--resume")
+    let checksum = has_flag(argv, "--checksum")
 
     if cmd == "verify" {
         let outcome = verify_tree(src, dst)
@@ -481,7 +489,7 @@ fn main() {
         process.exit(2)
     }
 
-    let outcome = run(cmd, src, dst, verify, cmd == "plan", json, allow_resume)
+    let outcome = run(cmd, src, dst, verify, cmd == "plan", json, allow_resume, checksum)
     match outcome {
         // The native plane cannot type a `match` binding from the scrutinee's
         // Result payload, so the annotation here is what gives `stats` a layout.

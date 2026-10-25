@@ -69,12 +69,16 @@ $ tallow run tallowx.tl -- copy SRC DST
 
 ```
 tallowx plan   SRC DST                  # what would be copied; writes nothing
-tallowx copy   SRC DST [--no-verify] [--json]
-tallowx move   SRC DST [--no-verify] [--json]
+tallowx copy   SRC DST [--checksum] [--resume] [--no-verify] [--json]
+tallowx move   SRC DST [--checksum] [--resume] [--no-verify] [--json]
 tallowx verify SRC DST                  # re-check an existing destination
 ```
 
 - `--no-verify` skips the BLAKE3 read-back. It is faster and proves nothing.
+- `--checksum` hashes both sides before skipping an existing destination. Without
+  it a skip is decided on size + mtime — the same cheap test `rsync` uses — so a
+  file corrupted in place with its timestamps left intact is skipped and the run
+  reports `failed: 0`. `verify` catches that; `copy --checksum` repairs it.
 - `--json` prints a single summary object and suppresses per-file lines.
 - Exit codes: `0` ok, `1` failure or verification mismatch, `2` usage.
 
@@ -238,6 +242,11 @@ clang's.
   target. Dangling links are reported and skipped.
 - **Ownership (uid/gid) and xattrs/ACLs are not preserved.** The run is done as
   the invoking user; `--preserve=all` semantics are out of scope for 0.1.
+- **A skip is size + mtime, not proof of sameness.** Skipping is what makes the
+  second run of a large tree cheap, and it will also skip a destination that was
+  damaged after being written if the damage preserved size and mtime. `--checksum`
+  turns every skip into a two-hash comparison (twice the reads, still no writes);
+  `verify` is the full-tree check. The default is the fast guess, deliberately.
 - **Resume is opt-in by size, and only for provable prefixes.** A file of 8 MiB
   or more whose destination exists but is short is resumed only when the bytes
   already present hash identically to the source's first N bytes; anything else
