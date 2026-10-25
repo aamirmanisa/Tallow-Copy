@@ -110,12 +110,29 @@ a fast tool may claim: a copier that cannot detect a short write, and a
 
 ---
 
+## Status of this report's recommendations (2026-10-25)
+
+| # | Item | State |
+|---|---|---|
+| P0 | Native lowering for the fs surface | **partial** — `fs.is_dir`, `fs.rename`, `fs.delete`, `fs.delete_file` landed and verified (native output == interpreter on a probe; a failed rename is loud, exit 1). `fs.stat`/`fs.list_dir` blocked behind a method-dispatch guard. |
+| P0 | Worker primitive | **done and re-scoped** — `spawn` already existed (see the correction in §3); the engine defect that made it unusable on real call depth is fixed; a `--workers N` pool is implemented and measured slower in the interpreter. |
+| P1 | Chunked handles / resume | **open** |
+| P1 | `Result`-returning copy | **done** — `copy.try_file` returns `Result<CopyStats>`, keeps a batch running, leaves no partial destination. |
+| P1 | Declaration honesty | **done** — `FileInfo` now emits its declared fields, `fs.delete_file` dispatches, `CopyStats.files_copied` is real. |
+| P2 | Streaming copy + dead "adaptive" path | **done** — kernel-path copy, 512 MiB peak RSS 551,840 KB → 51,580 KB; the dead helper and its fake test assertion are gone. |
+| P2 | Verification must read back | **done** — both sides hashed from disk; a 1-byte corruption and a truncation are both caught by test. |
+| P3 | Metadata completeness / symlinks | **open** |
+
+Evidence for each row lives in the commits named in the repository history and,
+for the engine-side items, in `tallowsphere` commits `3606307` (fs lowerings),
+`dbb4c21` (spawn stack) and local `ec55ba4` (try_file).
+
 ## 3 · Prioritised recommendations
 
 Ordered by (impact ÷ effort). "Impact" is what the measurement above says it
 buys; "effort" is engine work in `tallowsphere`.
 
-### P0 — Native lowering for the filesystem surface
+### P0 — Native lowering for the filesystem surface · PARTIAL (is_dir/rename/delete done; stat/list_dir open)
 
 **Impact:** removes the 303 ms start-up path and the per-file interpreter
 dispatch; enables a single native binary. On the 10,000-file dataset that is
@@ -144,7 +161,7 @@ Strategy:
 Acceptance: `tallow build tallowx.tl` exits 0, the binary passes `tests/smoke.sh`
 unchanged, and `tallow run tallowx.tl -- copy a b` matches the binary's output.
 
-### P0 — A worker primitive, then file-level parallelism
+### P0 — A worker primitive, then file-level parallelism · DONE (primitive existed — see below; engine defect fixed; pool measured slower)
 
 **Impact:** the only lever that scales with core count. A copy of 10,000 small
 files is embarrassingly parallel; today it is serial.
@@ -171,7 +188,7 @@ scheduler must cap in-flight writes per device (`/sys/block/*/queue/rotational`)
 NVMe; ≤1.2× for one large file (that needs the P1 chunk work). Do not ship the
 flag before this is measured.
 
-### P1 — Chunked handles: `open`/`read_at`/`write_at`/`seek`
+### P1 — Chunked handles: `open`/`read_at`/`write_at`/`seek` · OPEN
 
 **Impact:** four things at once — bounded memory for any file size, byte-level
 resume, per-chunk digests, and parallel chunks within one file.
@@ -190,7 +207,7 @@ Design constraints learned from the measurements:
   has `Transfer.tree_hash` and `Transfer.chunk`; reuse them so a resumed file
   is verified against the same root as a fresh copy.
 
-### P1 — A copy that returns `Result`
+### P1 — A copy that returns `Result` · DONE (copy.try_file)
 
 **Impact:** turns one bad file into one failed file instead of an aborted run.
 **Effort:** small-medium, but it is an API break across the stdlib.
@@ -204,7 +221,7 @@ Strategy: add `try_copy`-shaped variants returning `Result<CopyResult>` and keep
 the current names as unwrapping wrappers for one release. Then `tallowx` can
 report a failure count instead of dying.
 
-### P1 — Declaration honesty (three concrete drifts)
+### P1 — Declaration honesty (three concrete drifts) · DONE
 
 **Impact:** every program written against the spec is currently wrong at
 runtime in ways the checker accepts. Cheap to fix, and it unblocks writing
@@ -224,7 +241,7 @@ Add one test: for every `native fn` declared in `stdlib/*.tl`, dispatch must
 return `Some`, not `None`. That test would have caught (2) and the `file_size`
 case already noted in the tree.
 
-### P2 — Make `copy.dir` streaming and delete the dead "adaptive" path
+### P2 — Make `copy.dir` streaming and delete the dead "adaptive" path · DONE (streaming; dead helper removed)
 
 `copy_file_streaming` (`src/stdlib/copy.rs:63`) reads the whole file;
 `adaptive_worker_count` (`:496`) is referenced only from tests. Either implement
@@ -232,14 +249,14 @@ the worker pool it advertises or delete both and point users at `FileCopy.*`.
 Shipping a documented "adaptive parallelism" that does not exist is worse than
 having no such claim.
 
-### P2 — Engine-side verification must read back, or be removed
+### P2 — Engine-side verification must read back, or be removed · DONE (reads back)
 
 `src/stdlib/copy.rs:84` and `:93` hash the same in-memory buffer for both sides,
 so `verified` is true by construction. Either read the destination back (and
 pay for it, honestly) or drop the flag and let callers verify. A boolean that
 cannot be false is a defect with a friendly name.
 
-### P3 — Metadata completeness and symlinks
+### P3 — Metadata completeness and symlinks · OPEN
 
 Add `chown`, `utimensat` (atime + mtime), `setxattr`, and a `symlink`-preserving
 copy mode. Until then `tallowx` documents that ownership, ACLs and xattrs are
