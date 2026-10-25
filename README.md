@@ -107,6 +107,20 @@ shipped as a switch that implies a speedup it does not deliver: `spawn` with a
 `[]String` parameter is also interpreter-only, so the flag was the single thing
 preventing `tallowx` from compiling natively at all.
 
+### Native plane
+
+`tests/native.sh` builds the program with whatever engine `TALLOW` points at and
+runs the same fixture suite against the executable: 12/12 with a tallowsphere
+tree build, and a clean skip when the engine refuses to lower the program (the
+installed 1.5.2 release does). Build into a scratch directory — `tallow build`
+writes the binary beside the source, so building `tallowx.tl` in the repo root
+would overwrite the `./tallowx` launcher with a ~520 MB ELF.
+
+The launcher deliberately runs the interpreter: the lowerings the native path
+needs live in the tallowsphere tree, not in a release. Nothing here claims a
+speed advantage from the binary yet — measure it, don't assume it, and never
+benchmark through `tallow run` (it compiles first, so the number is clang's).
+
 ### What is guaranteed
 
 - **Integrity.** With verification on (the default), every copied file is

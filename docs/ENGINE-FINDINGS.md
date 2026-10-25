@@ -267,52 +267,52 @@ single-threaded-by-necessity without testing `spawn` first.
 
 `tallowx` is built to that table rather than around it.
 
-## Addendum (2026-10-25): `tallowx` compiles natively — and is still wrong
+## Addendum (2026-10-25): `tallowx` runs natively
 
-After a lowering wave in `tallowsphere` (fs.mkdir, fs.list_dir, fs.stat,
-FileCopy.copy_metadata, time.monotonic, `StringArray.push`, `[]String` loop
-bindings, annotation/parameter struct types, `?` payload pointer recovery), the
-whole program finally passes codegen and links:
+After a lowering wave in `tallowsphere` the program compiles AND behaves:
 
 ```
-$ tallow build tallowx.tl --release
-built: tallowx
+$ tallow build tallowx.tl --release && ./tallowx copy src dst
+copy: 3 file(s), 2005003 bytes, 77 ms
+  verified: 3 | metadata preserved: 3 | skipped: 0 | failed: 0
+$ diff -r src dst && echo IDENTICAL
+IDENTICAL
 ```
 
-That is a *compile* result, not a working binary. Two array defects remain, both
-visible in a ten-line program:
+`tests/native.sh` runs the smoke suite against the compiled binary and passes
+12/12 with the tree engine; against installed 1.5.2 it skips at the build step.
+The shipped `./tallowx` launcher still runs the interpreter, because the
+lowerings live in the tallowsphere tree and not yet in a release.
 
-```
-$ ./ap copy /tmp/nat-src /tmp/nat-dst     # writes argv.len, pos.len, pos[0]
-argv.len=3
-pos.len=1
-pos[0]=217040051319584
-```
+What the first working binary exposed — every one invisible until it ran:
 
-1. **`[]String` returned from a function loses its kind.** `fn positional(args:
-   []String) -> []String` returns a native array; the caller has no result kind
-   for it, so `pos[i]` loads the element as an i64 (an address) instead of
-   inttoptr-ing it. Function return types need to feed `method_result_kind` the
-   same way module calls now do.
-2. **`out = out.push(a)` inside a loop does not accumulate.** Three pushes leave
-   `len == 1`. Either the reassignment rebinds a stale array pointer or `push`
-   copies from the pre-push length.
+1. **A function-returned `[]String` lost its kind.** `pos.len()` strlen'd the
+   length header (3 elements answered 1) and `pos[0]` printed the element
+   address. Fixed by recording each function's declared return kind
+   (`[]String` -> `StringArray`) and applying it to the binding.
+2. **`out = out.push(a)` was fine** — the defect was (1) all along; the probe
+   that looked like a push bug was the call result being untyped.
+3. **Struct field assignment was discarded.** `s.n = s.n + 1` computed the value
+   and threw it away, so counters stayed 0 while the program looked healthy.
+4. **`return`/tail-expression of a `StructLit` in a `Result<Struct>` function**
+   returned the bare pointer, so the caller's `?` read the struct's first field
+   as the tag and its second as the payload: `job.root` pointed at an array
+   length prefix and `strlen` segfaulted. Bare returns now wrap as `Ok(value)`.
+5. **`?` inside a void function** emitted `ret ptr` inside `define void` — an
+   LLVM error at the very end of the build. It now fails loudly with the message.
+6. **`fs.list_dir` / `fs.mkdir` returned bare values** despite being declared
+   `Result<...>`, so `entries.len()` answered 474214444641 (a filename's bytes
+   read as a length). Both now return real results.
+7. **`fs.delete` on a directory** used `remove(3)` (empty dirs only) while the
+   interpreter uses `remove_dir_all`; a move deleted every file and left the
+   whole directory skeleton behind.
+8. **Engine-returned structs need registered layouts.** `%struct.FileInfo` and
+   `%struct.CopyResult` are declared in stdlib `.tl`, but only USER structs
+   reach the layout table, so `fs.stat(...).is_dir` had no type to read.
+9. **`match r { Ok(x) => .., Err(e) => .. }` does not bind `x`/`e`** as
+   variables on the native plane — the ident is emitted as an undefined global
+   (`@tallow.e`). `if let Err(e) = r` does bind it.
 
-Until those two are fixed, the interpreter remains the only correct plane and
-`./tallowx` deliberately keeps running there. The non-verifying path of a
-540 MB release binary that miscounts its own file list is not a shippable
-artifact, and printing a speed number from it would be measuring the wrong thing.
-
-Other traps this wave established, worth knowing before the next attempt:
-
-- `match r { Ok(_) => .., Err(e) => .. }` does not register `e` as a variable on
-  the native plane; the ident is emitted as an undefined global `@tallow.e` and
-  clang fails. `if let Err(e) = r` does bind it (as a string pointer).
-- The native `fs.delete` fails loudly instead of returning `Err`, so a `Result`
-  binding around it cannot work; verify by observing `fs.exists` after the call.
-- `let x = f()` where `f` returns `Result<Struct>` loses the struct type; an
-  explicit `let x: Struct = f()?` is required for field reads.
-- `match` arm bindings of Ok payloads are untyped for the same reason.
-- The engine writes its output next to the source with the source's stem, so
-  building `tallowx.tl` in the repo root overwrites the `tallowx` launcher
-  script. Build in `build/`.
+Source-level traps kept in the program itself: annotate struct-typed bindings
+(`let job: Job = f()?`), avoid a field name shared by two structs, and never
+rely on a `Result` binding around `fs.delete` (native fails loudly instead).
