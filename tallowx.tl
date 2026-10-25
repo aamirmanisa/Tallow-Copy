@@ -319,6 +319,15 @@ fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bo
         }
     }
 
+    // A move that copied everything must also remove the source TREE. The
+    // per-file deletions above leave the directory skeleton behind, so the
+    // source looked "half moved" — all files gone, every directory still there.
+    // Guarded by `failed == 0`: never delete a source whose copy had a failure.
+    // fs.delete is recursive for directories, so one call finishes the job.
+    if mode == "move" && !dry && stats.failed == 0 && !single {
+        fs.delete(src)
+    }
+
     let t1 = time.monotonic()
     stats.elapsed_ms = (t1 - t0) / 1000000
     Ok(stats)
@@ -358,8 +367,6 @@ fn usage() {
     print("")
     print("  --no-verify  skip BLAKE3 read-back verification (faster; verifies nothing)")
     print("  --json       one machine-readable summary line")
-    print("               results are passed through per-worker stat files: the")
-    print("               return value cannot be used to collect counts")
 }
 
 fn main() {
