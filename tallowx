@@ -1,9 +1,44 @@
 #!/usr/bin/env bash
 # tallowx launcher — the tool is a Tallow program executed by the Tallow engine.
 #
-# The engine has no native lowering for the file-metadata and copy primitives
-# this tool needs (see docs/ENGINE-FINDINGS.md #1), so the program runs on the
-# interpreter. `tallow run` is therefore the whole launcher.
-set -euo pipefail
+# Two planes run the same source, and they are not equivalent:
+#   native      — `tallow build` output; ~3.7× faster on many small files and
+#                 ~1.3× on large ones, 4 ms startup.
+#   interpreter — `tallow run`; no build step, ~30 ms startup, and the plane
+#                 every engine release can run.
+#
+# The launcher uses the native binary when one has been built from the CURRENT
+# source (build/tallowx, newer than tallowx.tl), and otherwise runs the
+# interpreter. Force either plane with TALLOWX_PLANE=native|interpret.
+set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${TALLOW:-tallow}" run "$HERE/tallowx.tl" -- "$@"
+TL="$HERE/tallowx.tl"
+NATIVE="$HERE/build/tallowx"
+ENGINE="${TALLOW:-tallow}"
+PLANE="${TALLOWX_PLANE:-auto}"
+
+native_ready() {
+    [ -x "$NATIVE" ] && [ "$NATIVE" -nt "$TL" ]
+}
+
+case "$PLANE" in
+    native)
+        if ! native_ready; then
+            echo "tallowx: TALLOWX_PLANE=native but $NATIVE is missing or older than tallowx.tl" >&2
+            echo "tallowx: build it with: cd $HERE/build && cp ../tallowx.tl . && $ENGINE build tallowx.tl --release" >&2
+            exit 2
+        fi
+        exec "$NATIVE" "$@"
+        ;;
+    interpret)
+        exec "$ENGINE" run "$TL" -- "$@"
+        ;;
+    auto|"")
+        if native_ready; then exec "$NATIVE" "$@"; fi
+        exec "$ENGINE" run "$TL" -- "$@"
+        ;;
+    *)
+        echo "tallowx: unknown TALLOWX_PLANE='$PLANE' (auto|native|interpret)" >&2
+        exit 2
+        ;;
+esac

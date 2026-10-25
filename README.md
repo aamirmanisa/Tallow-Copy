@@ -109,7 +109,7 @@ preventing `tallowx` from compiling natively at all.
 
 ### Benchmarks (measured, not estimated)
 
-Host: 8-core ARM64, ext4, 16 GB RAM, page cache warm; destination deleted between
+Host: 8-core ARM64, ext4, 16 GB RAM, **page cache warm**; destination deleted between
 runs; round-robin, min of 3; load average 3.0–6.7 during the runs (the box was
 compiling), so treat these as an upper bound on wall time, not a lab figure.
 Every tool's output was checked byte-identical to the source (`diff -r`).
@@ -140,6 +140,9 @@ Reading these honestly:
 - The interpreter pays per-file overhead, so it loses most on the
   many-small-files shape (1.18 s vs 314 ms, 3.7×) and only 1.3× on the
   large-file shape, where hashing dominates both.
+- These are cache-warm figures. A cold run of the same 196 MB tree (cache dropped
+  by a build in between) took 1,729 ms end to end at 112 MiB/s — I/O bound, not
+  CPU bound, which is what a real first transfer of that size looks like.
 - The 16 MB row is not stable: an earlier run of the same binary reported
   92–109 ms for the same tree, a 3× spread that never reproduced. Treat ~300 ms
   as the number and the fast outlier as dentry-cache luck.
@@ -154,17 +157,31 @@ which archive the linker picked.
 
 ### Native plane
 
-`tests/native.sh` builds the program with whatever engine `TALLOW` points at and
-runs the same fixture suite against the executable: 12/12 with a tallowsphere
-tree build, and a clean skip when the engine refuses to lower the program (the
-installed 1.5.2 release does). Build into a scratch directory — `tallow build`
-writes the binary beside the source, so building `tallowx.tl` in the repo root
-would overwrite the `./tallowx` launcher with a ~520 MB ELF.
+The same source compiles to a native binary and runs on the interpreter. `tallow`
+1.5.2 as installed on 2026-10-25 builds it — the nine codegen defects listed in
+`docs/ENGINE-FINDINGS.md` are fixed in the engine, so this is a two-plane tool
+rather than an interpreter tool with a blocked native path.
 
-The launcher deliberately runs the interpreter: the lowerings the native path
-needs live in the tallowsphere tree, not in a release. Nothing here claims a
-speed advantage from the binary yet — measure it, don't assume it, and never
-benchmark through `tallow run` (it compiles first, so the number is clang's).
+`tests/native.sh` builds the program with whatever engine `TALLOW` points at and
+runs the same fixture suite against the executable (12/12), and skips cleanly if
+an engine cannot lower it. Build into a scratch directory: `tallow build` writes
+the binary beside the source, so building `tallowx.tl` in the repo root would
+overwrite the `./tallowx` launcher with a ~110 MB ELF.
+
+The launcher picks the plane:
+
+```
+./tallowx …                        # native if build/tallowx is newer than tallowx.tl, else interpreter
+TALLOWX_PLANE=native ./tallowx …   # refuse to run on the interpreter
+TALLOWX_PLANE=interpret ./tallowx …# force the interpreter
+```
+
+A build is deliberately not checked in: it is ~110 MB, platform-specific, and
+only valid for the source and engine that produced it, so the launcher compares
+mtime and falls back rather than running a stale binary.
+
+Never benchmark through `tallow run`: it compiles first, so the number you get is
+clang's.
 
 ### What is guaranteed
 
@@ -252,7 +269,7 @@ native build.
 
 ```
 tallowx.tl          the tool — one Tallow program, ~380 lines
-tallowx             launcher (exec tallow run …)
+tallowx             launcher (native build if fresh, else tallow run)
 tests/smoke.sh      12 end-to-end checks
 bench/bench.py      benchmark harness → bench/results.json
 docs/DESIGN.md      architecture and decisions
