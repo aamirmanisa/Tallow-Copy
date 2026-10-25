@@ -148,8 +148,12 @@ unchanged, and `tallow run tallowx.tl -- copy a b` matches the binary's output.
 
 **Impact:** the only lever that scales with core count. A copy of 10,000 small
 files is embarrassingly parallel; today it is serial.
-**Effort:** medium-large. **Where:** `stdlib/sync.tl` + `src/stdlib/sync.rs`,
-or lowering for `process.spawn` plus a working handle.
+**Effort:** medium. **Where:** a small `.tl` helper over the existing `spawn`
+primitive. Correcting this report: `spawn f(args)` already runs the callee
+concurrently in both engines, and the native backend maps it to pthreads with a
+bounded live-task pool (`TL_MAX_LIVE_TASKS 4096`). Measured: two concurrent
+512 MiB hashes took 9.38 s where one took 9.52 s. The missing piece is a
+bounded queue with deterministic error aggregation, not a thread constructor.
 
 Pick one and only one:
 
@@ -289,7 +293,7 @@ state), cloud backends, and a sync daemon.
 | Engine hot paths (copy, hash, chunk, net) | **Rust** — as today | No GC, `copy_file_range`, io_uring crate, `rayon`, and the browser backend already forces C++ (BoringSSL) |
 | Engine alternatives | C++ (already a dependency), Zig (no mature io_uring/TLS ecosystem), Go (GC + cgo boundary, larger runtime), JVM (start-up) | None wins for a workload bounded by syscalls |
 | Tool/orchestration (`tallowx`) | **Tallow** — as today | The logic is bookkeeping over I/O; the stdlib has the primitives; one file, no build |
-| Where Tallow is the wrong tool | per-file hot loops and anything concurrent, until P0 lands | interpreter dispatch (~0.1–0.5 ms/file) and no threads |
+| Where Tallow is the wrong tool | per-file hot loops, until the fs lowerings land | interpreter dispatch (~0.1–0.5 ms/file); `spawn` exists and is concurrent in both engines, but a copy job cannot be compiled today |
 
 Rule of thumb that the measurements support: **hot loop in Rust, policy in
 `.tl`.** Every time that rule was violated in this build, the cost was visible

@@ -61,10 +61,13 @@ is the tool for that question.
 
 ### 4. No worker pool
 
-Tallow 1.5.2 has channels, mutexes, atomics and wait groups, and no way to
-start a thread (ENGINE-FINDINGS #11). `process.spawn` has no native lowering
-and its `Process.pid()` is unknown at run time, so a process-based pool cannot
-be assembled either. The copy is therefore sequential per file.
+Tallow 1.5.2 *does* have a thread primitive: `spawn f(args)` (and `async fn` +
+`.await`) runs the callee concurrently in both engines, and the native backend
+maps it to pthreads with a bounded live-task pool (ENGINE-FINDINGS #11,
+corrected). What the tool cannot do is *compile* a worker pool, because
+`FileCopy.copy` and `fs.stat` have no native lowering — so the copy stays
+sequential per file, and `tallow run` only gets the interpreter's scheduling
+speed.
 
 The engine's own "adaptive parallelism" is dead code (ENGINE-FINDINGS #9), so
 there is nothing to switch on. This is the largest gap between this tool and
@@ -123,8 +126,9 @@ possible in `.tl` alone:
 1. **Lower the metadata surface** — `fs.stat`, `fs.list_dir`, `fs.copy`,
    `FileCopy.copy/copy_metadata` in codegen. Turns this program into a single
    native binary; removes the ~280 ms startup and most of the small-file gap.
-2. **A thread/worker primitive** in `sync` (or lowering for `process.spawn`
-   plus a working `Process` handle). Unlocks a worker pool over the file list.
+2. **A bounded pool over a file list** built on the existing `spawn` primitive
+   (it already gives real threads; what is missing is a queue with a cap and
+   deterministic error aggregation, not a thread constructor).
 3. **Chunked read/write handles** (`open`/`read_at`/`write_at`/`seek`) so a
    copy can stream with bounded memory and per-chunk digests — the shape
    needed for verified parallel chunk copy and byte-level resume.

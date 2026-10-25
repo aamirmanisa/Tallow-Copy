@@ -197,20 +197,61 @@ constant. `tallowx` re-hashes both files from disk with `Transfer.hash`
 
 ---
 
-## 11. No concurrency primitive at the language level
+## 11. Concurrency DOES exist — but nothing copy-shaped can be compiled
 
-`stdlib/sync.tl` declares `channel`, `unbounded`, `mutex`, `atomic`,
-`wait_group` — and no way to start a thread. `process.spawn` has no lowering
-and, at run time, `Process.pid()` is an unknown method:
+The earlier version of this finding said "no way to start a thread". That was
+wrong, and the error came from reading `stdlib/sync.tl` (channels, mutexes,
+atomics, wait groups — no thread constructor) instead of the language's own
+`spawn` expression. Corrected from measurement:
 
 ```console
-runtime error: type error: unknown method: .pid() on Process
+$ cat probe_spawn2.tl
+fn work(p: String) -> i64 { print("worked:" + p)  return 1 }
+fn main() { let h = spawn work("/tmp/x")  print("spawned") }
+
+$ tallow run probe_spawn2.tl --interpret
+spawned
+worked:/tmp/x
+$ tallow build probe_spawn2.tl && ./probe_spawn2
+spawned
+worked:/tmp/x
 ```
 
-**Consequence:** a worker pool cannot be written in Tallow today. Parallelism
-would have to come from the engine (finding 9 says it does not exist there
-either) or from N processes started by the shell.
+`spawn f(args)` parses in both engines, runs the callee in both, and the native
+backend maps it to real OS threads (`tallow_async_spawn`, a pthread/Win32 worker
+with a bounded live-task pool — `TL_MAX_LIVE_TASKS 4096` and a condition
+variable for back-pressure). `async fn` + `.await` is the second form; the
+interpreter treats `await` on a *non-task* operand as a synchronous
+pass-through, and says so once at run time.
 
+Two real concurrency measurements (512 MiB BLAKE3, 8-core aarch64 host, debug
+build, so absolute numbers are slow but the ratio is the point):
+
+| Program | native | interpreter |
+|---|---|---|
+| one `spawn` of the hash | 9.52 s | 9.08 s |
+| two `spawn`s of the same hash | 9.38 s | 9.73 s |
+
+Two hashes in the same wall time as one: both engines run spawned work
+concurrently. A worker pool is therefore *expressible* today.
+
+**What is actually missing** is the ability to compile a copy job that uses it:
+
+```console
+$ tallow build probe_async.tl
+build failed: native backend has no lowering for method 'copy' at byte offset
+45 on this receiver (unknown method for any statically-known kind);
+failing loudly so the interpreter runs it
+```
+
+So the gap is not concurrency, it is the `fs`/`FileCopy` lowering surface. Once
+`FileCopy.copy` and `fs.stat` lower, `spawn` gives real parallel copying for
+free. Until then `tallow run --interpret` does run spawned work concurrently
+(measured above), just at interpreter speed.
+
+**Consequence:** parallelism is the cheap part; the lowering wave is the
+expensive part. Scope work accordingly — and never claim a tool is
+single-threaded-by-necessity without testing `spawn` first.
 ---
 
 ## What this costs a transfer tool
