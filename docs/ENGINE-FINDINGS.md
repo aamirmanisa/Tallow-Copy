@@ -266,3 +266,53 @@ single-threaded-by-necessity without testing `spawn` first.
 | Accurate progress numbers | caller must count (finding 3) |
 
 `tallowx` is built to that table rather than around it.
+
+## Addendum (2026-10-25): `tallowx` compiles natively — and is still wrong
+
+After a lowering wave in `tallowsphere` (fs.mkdir, fs.list_dir, fs.stat,
+FileCopy.copy_metadata, time.monotonic, `StringArray.push`, `[]String` loop
+bindings, annotation/parameter struct types, `?` payload pointer recovery), the
+whole program finally passes codegen and links:
+
+```
+$ tallow build tallowx.tl --release
+built: tallowx
+```
+
+That is a *compile* result, not a working binary. Two array defects remain, both
+visible in a ten-line program:
+
+```
+$ ./ap copy /tmp/nat-src /tmp/nat-dst     # writes argv.len, pos.len, pos[0]
+argv.len=3
+pos.len=1
+pos[0]=217040051319584
+```
+
+1. **`[]String` returned from a function loses its kind.** `fn positional(args:
+   []String) -> []String` returns a native array; the caller has no result kind
+   for it, so `pos[i]` loads the element as an i64 (an address) instead of
+   inttoptr-ing it. Function return types need to feed `method_result_kind` the
+   same way module calls now do.
+2. **`out = out.push(a)` inside a loop does not accumulate.** Three pushes leave
+   `len == 1`. Either the reassignment rebinds a stale array pointer or `push`
+   copies from the pre-push length.
+
+Until those two are fixed, the interpreter remains the only correct plane and
+`./tallowx` deliberately keeps running there. The non-verifying path of a
+540 MB release binary that miscounts its own file list is not a shippable
+artifact, and printing a speed number from it would be measuring the wrong thing.
+
+Other traps this wave established, worth knowing before the next attempt:
+
+- `match r { Ok(_) => .., Err(e) => .. }` does not register `e` as a variable on
+  the native plane; the ident is emitted as an undefined global `@tallow.e` and
+  clang fails. `if let Err(e) = r` does bind it (as a string pointer).
+- The native `fs.delete` fails loudly instead of returning `Err`, so a `Result`
+  binding around it cannot work; verify by observing `fs.exists` after the call.
+- `let x = f()` where `f` returns `Result<Struct>` loses the struct type; an
+  explicit `let x: Struct = f()?` is required for field reads.
+- `match` arm bindings of Ok payloads are untyped for the same reason.
+- The engine writes its output next to the source with the source's stem, so
+  building `tallowx.tl` in the repo root overwrites the `tallowx` launcher
+  script. Build in `build/`.

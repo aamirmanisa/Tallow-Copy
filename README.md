@@ -97,23 +97,15 @@ time (ENGINE-FINDINGS #2-adjacent); the second is the engine stating which
 execution plane it used, which it never suppresses. Redirect stderr if you want
 clean logs: `./tallowx copy a b 2>/dev/null`.
 
-### Parallel copies (`--workers N`)
+### Why there is no `--workers` flag
 
-`--workers N` splits the file list into N contiguous slices and copies each in a
-`spawn`ed task, collecting counts through per-worker stat files (the
-interpreter's `await` on a spawn handle returns 0, so a return value cannot carry
-them). It is correct — 4,000 files, `diff -r` identical, 0 failed — but it is
-**not faster in the interpreter**:
-
-| 4,000 x 200-byte files | wall |
-|---|---|
-| sequential | 7.63 s |
-| `--workers 8` | 8.55 s |
-
-The interpreter serialises evaluation and the parent spins while waiting, so the
-flag is opt-in and unadvertised. It exists for the compiled path, where `spawn`
-maps to pthreads with a bounded live-task pool; that path is blocked only by the
-missing `FileCopy`/`fs` lowerings.
+There used to be one. It split the file list into `spawn`ed slices and was
+measured at **8.55 s against 7.63 s** for the sequential path on 4,000 files —
+slower, because the interpreter serialises evaluation and the parent spins while
+waiting on the stat files the workers write. It has been removed rather than
+shipped as a switch that implies a speedup it does not deliver: `spawn` with a
+`[]String` parameter is also interpreter-only, so the flag was the single thing
+preventing `tallowx` from compiling natively at all.
 
 ### What is guaranteed
 
