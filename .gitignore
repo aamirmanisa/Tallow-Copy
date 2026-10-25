@@ -11,3 +11,4 @@ bench/big/
 # native build output (the engine writes ./tallowx, which would overwrite the
 # launcher script of the same name — build in build/ instead)
 build/
+dst/
