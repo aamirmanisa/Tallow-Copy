@@ -30,10 +30,10 @@ copy: 4 file(s), 6600006 bytes, 22 ms
 
 | | |
 |---|---|
-| Version | 0.1.0 |
-| Engine | Tallow 1.5.2 (interpreter plane) |
+| Version | 0.2.0 |
+| Engine | Tallow 1.5.6 (both planes; `--resume` needs 1.5.5+) |
 | Platforms | wherever `tallow` runs — measured on linux-aarch64 |
-| Tests | 12/12 smoke checks pass (`tests/smoke.sh`) |
+| Tests | 28 native checks + the interpreter suite (`tests/native.sh`, `tests/smoke.sh`) |
 | Licence | MIT |
 
 ## Install
@@ -236,10 +236,12 @@ summary prints `resumed: N` when the path was used; the JSON carries
 
 ### Native plane
 
-The same source compiles to a native binary and runs on the interpreter. `tallow`
-1.5.2 as installed on 2026-10-25 builds it — the nine codegen defects listed in
-`docs/ENGINE-FINDINGS.md` are fixed in the engine, so this is a two-plane tool
-rather than an interpreter tool with a blocked native path.
+The same source compiles to a native binary and runs on the interpreter. The
+engine that first built it natively still printed `1.5.2` while carrying the nine
+codegen fixes listed in `docs/ENGINE-FINDINGS.md` — which is why the suites probe
+capability by execution instead of trusting the version string. Releases from
+1.5.5 onward state the version correctly, and 1.5.6 also keeps the payload kind
+through `?`.
 
 `tests/native.sh` builds the program with whatever engine `TALLOW` points at and
 runs the same fixture suite against the executable (12/12), and skips cleanly if
@@ -300,6 +302,11 @@ Median of 3 runs per tool, same machine, destination removed between runs,
 integrity checked after the last run. Engine `tallow 1.5.2`, linux-aarch64,
 ext4. Raw data in [`bench/results.json`](bench/results.json);
 reproduce with `python3 bench/bench.py`.
+
+These numbers were measured on the **interpreter plane**, before the native
+plane existed. The tool now compiles ahead of time on 1.5.5+, which is faster
+than these figures; the native plane has not been benchmarked yet, so no speedup
+is claimed for it here.
 
 **A — one 256 MiB file**
 
