@@ -40,6 +40,26 @@ pass "native build produced an executable"
 
 run() { "$BIN" "$@" >"$ROOT/out.log" 2>&1; }
 
+# ── does this engine carry the resume primitives? (fs.copy_range, Transfer.hash_prefix)
+# The tool's core paths work on any 1.5.x engine; --resume needs the build that
+# added copy_range. CI installs the released tarball, which may lag, so probe by
+# EXECUTION rather than by version string — two engines both print 1.5.2 and only
+# one of them has the primitive.
+mkdir -p "$ROOT/probe"
+cat > "$ROOT/probe/probe.tl" <<'PROBETL'
+fn main() {
+    fs.write_file("/tmp/tallowx-resume-probe.src", "0123456789abcdef")?
+    fs.copy_range("/tmp/tallowx-resume-probe.src", "/tmp/tallowx-resume-probe.dst", 8, 8)
+    let h = Transfer.hash_prefix("/tmp/tallowx-resume-probe.src", 4)
+    print("has-resume:" + h.len().to_string())
+}
+PROBETL
+RESUME_OK=0
+if out=$("$TALLOW" run "$ROOT/probe/probe.tl" --interpret 2>&1) && printf '%s' "$out" | grep -q 'has-resume:64'; then
+  RESUME_OK=1
+fi
+rm -f /tmp/tallowx-resume-probe.src /tmp/tallowx-resume-probe.dst
+
 # ── fixture: nested dirs, mixed perms, pinned mtimes, empty dir, unicode name
 mkdir -p "$SRC/a/b/c" "$SRC/a/empty"
 printf 'hello\n' > "$SRC/a/small.txt"
@@ -82,6 +102,7 @@ rc=$?
 if [ $rc -ne 0 ] && grep -q 'differs\|mismatch\|failed' "$ROOT/out.log"; then pass "verify exits non-zero and names the corruption"; else fail "verify missed a single flipped byte (exit $rc)"; fi
 printf 'hello\n' > "$DST/a/small.txt"
 
+if [ "$RESUME_OK" = 1 ]; then
 # 4b · without --resume a short destination is re-copied, not resumed
 mkdir -p "$ROOT/rsrc/sub" "$ROOT/rdst/sub"
 head -c 12582912 /dev/urandom > "$ROOT/rsrc/sub/big.bin"
@@ -105,6 +126,9 @@ if grep -q 'copied: 0\|copy: 0 file' "$ROOT/out.log"; then pass "resume: complet
 head -c 5242880 /dev/urandom > "$ROOT/rdst/sub/big.bin"        # same size, wrong bytes
 run copy --resume "$ROOT/rsrc" "$ROOT/rdst"
 if cmp -s "$ROOT/rsrc/sub/big.bin" "$ROOT/rdst/sub/big.bin"; then pass "resume: mismatched prefix was replaced"; else fail "resume appended to a mismatched prefix"; fi
+else
+    echo "skip  resume: this engine has no fs.copy_range/Transfer.hash_prefix (needs tallowsphere 8883409+)"
+fi
 
 # 6 · move removes the source tree
 mkdir -p "$ROOT/mv-src/x"

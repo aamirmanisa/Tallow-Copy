@@ -155,6 +155,13 @@ with `--release` first makes the archive the optimized one: hashing 436 ms,
 verified copy 702 ms, binary 110 MB. A 10.4× difference caused entirely by
 which archive the linker picked.
 
+**Engine requirement.** `--resume` needs the engine build that added
+`fs.copy_range` and `Transfer.hash_prefix` (tallowsphere `8883409` or later). The
+tarball the installer currently ships (v1.5.2) does not have them: with that
+engine the flag fails loudly (`undefined function: fs.copy_range`) and the test
+suite skips the resume cases with a message instead of pretending they ran. Every
+other path — plain copy, verify, move, plan — works on any 1.5.x engine.
+
 ### Resuming an interrupted copy (`--resume`)
 
 A transfer that dies half way leaves a short destination. With `--resume`, a file
