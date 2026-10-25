@@ -30,6 +30,27 @@ jobs:
       - name: Engine version
         run: tallow --version
 
+      # The tool's core paths run on any 1.5.x engine; --resume needs the build
+      # that added fs.copy_range and Transfer.hash_prefix. Assert it here so a
+      # release that loses the primitives fails CI loudly, instead of the test
+      # suite quietly skipping the resume cases (see the probe in tests/).
+      - name: Engine has the resume primitives
+        run: |
+          cat > /tmp/resume-probe.tl <<'TL'
+          fn main() {
+              fs.write_file("/tmp/probe.src", "0123456789abcdef")?
+              fs.copy_range("/tmp/probe.src", "/tmp/probe.dst", 8, 8)
+              let h = Transfer.hash_prefix("/tmp/probe.src", 4)
+              print("ok " + h.len().to_string())
+          }
+          TL
+          out=$(tallow run /tmp/resume-probe.tl --interpret)
+          echo "$out"
+          case "$out" in
+            *"ok 64"*) echo "resume primitives present" ;;
+            *) echo "::error::engine lacks fs.copy_range / Transfer.hash_prefix — --resume cannot work"; exit 1 ;;
+          esac
+
       - name: Type-check the tool
         run: tallow check tallowx.tl
 
