@@ -121,19 +121,19 @@ reproduce with `python3 bench/bench.py`.
 
 | Tool | Median | vs `cp` |
 |---|---|---|
-| `cp -a` | 180.6 ms | 1.00× |
-| `rsync -a` | 412.0 ms | 2.28× slower |
-| `tallowx` (verify) | 792.5 ms | 4.39× slower |
-| `tallowx --no-verify` | 194.9 ms | 1.08× slower |
+| `cp -a` | 168.0 ms | 1.00× |
+| `rsync -a` | 507.7 ms | 3.02× slower |
+| `tallowx` (verify) | 721.7 ms | 4.30× slower |
+| `tallowx --no-verify` | 179.4 ms | 1.07× slower |
 
-**B — 2,000 files in 40 directories (9.9 MB)**
+**B — 2,000 files in 40 directories**
 
 | Tool | Median | Notes |
 |---|---|---|
-| `cp -a` | 78.3 ms | |
-| `rsync -a` | 165.3 ms | |
-| `tallowx` (verify) | 707.3 ms | includes ~281 ms interpreter startup |
-| `tallowx --no-verify` | 630.9 ms | ~350 ms of work |
+| `cp -a` | 76.8 ms | |
+| `rsync -a` | 167.8 ms | |
+| `tallowx` (verify) | 594.8 ms | includes ~286 ms interpreter startup |
+| `tallowx --no-verify` | 529.4 ms | ~245 ms of work |
 
 Reading these numbers:
 
@@ -142,13 +142,13 @@ Reading these numbers:
   userspace fast path to win here.
 - Verification costs roughly **3–4× the copy time on a large file** — it is
   three reads and one write instead of one read and one write.
-- Many small files are dominated by **~280 ms of interpreter startup** plus a
-  per-file interpreter dispatch. `tallowx` is ~8× slower than `cp` on that
+- Many small files are dominated by **~286 ms of interpreter startup** plus a
+  per-file interpreter dispatch. `tallowx` is ~7–8× slower than `cp` on that
   shape. If you copy thousands of tiny files and do not need verification, use
   `cp -a`.
 - A 10,000-file tree (100 dirs, 512 B each) copied and diffed identical in
   1.6 s of tool time / 5.5 s wall, peak RSS 30 MB.
-- Run-to-run variance on this host was 180–230 ms for `cp -a` on dataset A
+- Run-to-run variance on this host was 168–230 ms for `cp -a` on dataset A
   while page cache warmed; treat single-digit percentages as noise.
 
 ## Why it is interpreter-executed

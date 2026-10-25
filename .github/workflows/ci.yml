@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The engine ships prebuilt tarballs per target; the installer verifies
+      # the checksum and compiles a probe program before reporting success.
+      - name: Install the Tallow engine
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh \
+            | bash -s -- --prefix "$HOME/.local"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Engine version
+        run: tallow --version
+
+      - name: Type-check the tool
+        run: tallow check tallowx.tl
+
+      - name: End-to-end smoke tests
+        run: ./tests/smoke.sh

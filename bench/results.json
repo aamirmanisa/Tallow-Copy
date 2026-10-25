@@ -1,94 +1,95 @@
 {
   "engine": "tallow 1.5.2\n  platform: linux\n  arch: aarch64\n  build: 2026-10-24T19:18:10Z\n  git: 8887e39d65",
   "host": "aarch64",
+  "workdir": "/tmp/tallowx-bench.7ez9ohpa",
   "runs": 3,
   "datasets": [
     {
-      "dataset": "A: single 256 MiB file",
+      "dataset": "A: one 256 MiB file",
       "rows": [
         {
           "tool": "cp -a",
           "runs_ms": [
-            539.1,
-            180.6,
-            173.6
+            168.0,
+            169.4,
+            158.4
           ],
-          "median_ms": 180.6,
+          "median_ms": 168.0,
           "integrity_ok": true
         },
         {
           "tool": "rsync -a",
           "runs_ms": [
-            425.4,
-            396.2,
-            412.0
+            501.5,
+            507.7,
+            548.5
           ],
-          "median_ms": 412.0,
+          "median_ms": 507.7,
           "integrity_ok": true
         },
         {
           "tool": "tallowx (verify)",
           "runs_ms": [
-            740.5,
-            792.5,
-            830.4
+            725.4,
+            721.7,
+            708.0
           ],
-          "median_ms": 792.5,
+          "median_ms": 721.7,
           "integrity_ok": true
         },
         {
           "tool": "tallowx --no-verify",
           "runs_ms": [
-            217.5,
-            192.5,
-            194.9
+            177.8,
+            185.6,
+            179.4
           ],
-          "median_ms": 194.9,
+          "median_ms": 179.4,
           "integrity_ok": true
         }
       ]
     },
     {
-      "dataset": "B: 2,000 files / 40 dirs (9.9 MB)",
+      "dataset": "B: 2,000 files / 40 dirs",
       "rows": [
         {
           "tool": "cp -a",
           "runs_ms": [
-            570.9,
-            78.3,
-            74.0
+            105.7,
+            76.8,
+            74.8
           ],
-          "median_ms": 78.3,
+          "median_ms": 76.8,
           "integrity_ok": true
         },
         {
           "tool": "rsync -a",
           "runs_ms": [
-            165.3,
-            159.6,
-            177.0
+            175.3,
+            161.6,
+            167.8
           ],
-          "median_ms": 165.3,
+          "median_ms": 167.8,
           "integrity_ok": true
         },
         {
           "tool": "tallowx (verify)",
           "runs_ms": [
-            669.4,
-            767.1,
-            707.3
+            591.5,
+            594.8,
+            598.8
           ],
-          "median_ms": 707.3,
+          "median_ms": 594.8,
           "integrity_ok": true
         },
         {
           "tool": "tallowx --no-verify",
           "runs_ms": [
-            657.7,
-            589.4,
-            630.9
+            548.0,
+            507.7,
+            529.4
           ],
-          "median_ms": 630.9,
+          "median_ms": 529.4,
           "integrity_ok": true
         }
       ]
@@ -96,10 +97,10 @@
   ],
   "interpreter_startup_ms": {
     "runs": [
-      294.1,
-      267.9,
-      280.7
+      301.7,
+      252.5,
+      285.7
     ],
-    "median": 280.7
+    "median": 285.7
   }
 }
