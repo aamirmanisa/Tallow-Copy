@@ -116,30 +116,33 @@ Every tool's output was checked byte-identical to the source (`diff -r`).
 
 4,000 files × 200 B (16 MB, 40 dirs):
 
-| tool                      | min |
-|---------------------------|-----|
-| tallowx (native, verify)  |  92 ms |
-| tallowx (native, --no-verify) |  97 ms |
-| tallowx (interpreter)     | 640 ms |
-| `cp -a`                   | 156 ms |
+| tool                          | min | runs |
+|-------------------------------|-----|------|
+| tallowx (native, verify)      | 314 ms | 318, 314, 316, 325, 324 |
+| tallowx (native, --no-verify) | 259 ms | 264, 259, 269 |
+| tallowx (interpreter)         | 1,176 ms | 1,215, 1,176, 1,227 |
+| `cp -a`                       | 141 ms | 145, 144, 144 |
 
 1,000 files × 200 KB (196 MB, 10 dirs):
 
-| tool                      | min |
-|---------------------------|-----|
-| tallowx (native, verify)  | 702 ms |
-| tallowx (native, --no-verify) | 235 ms |
-| tallowx (interpreter)     | 886 ms |
-| `cp -a`                   | 202 ms |
+| tool                          | min | runs |
+|-------------------------------|-----|------|
+| tallowx (native, verify)      | 684 ms | 689, 702, 684 |
+| tallowx (native, --no-verify) | 235 ms | 235, 248, 246 |
+| tallowx (interpreter)         | 876 ms | 878, 897, 876 |
+| `cp -a`                       | 195 ms | 195, 201, 196 |
 
 Reading these honestly:
 - `cp -a` does no hashing and no read-back, so the like-for-like row is
-  `--no-verify`: 235 ms vs 202 ms on 196 MB, and 97 ms vs 156 ms on 16 MB.
-- Verification costs 470 ms on 196 MB (both sides read and hashed, ~840 MB/s
-  aggregate) and is nearly free on 16 MB.
-- The interpreter pays per-file overhead, so it loses on the many-small-files
-  shape (640 ms vs 92 ms) and only 1.3× on the large-file shape, where hashing
-  dominates both.
+  `--no-verify`: 259 ms vs 141 ms on 16 MB, 235 ms vs 195 ms on 196 MB.
+- Verification costs 55 ms on 16 MB and 450 ms on 196 MB (both sides read and
+  hashed, ~870 MB/s aggregate for the large set).
+- The interpreter pays per-file overhead, so it loses most on the
+  many-small-files shape (1.18 s vs 314 ms, 3.7×) and only 1.3× on the
+  large-file shape, where hashing dominates both.
+- The 16 MB row is not stable: an earlier run of the same binary reported
+  92–109 ms for the same tree, a 3× spread that never reproduced. Treat ~300 ms
+  as the number and the fast outlier as dentry-cache luck.
 
 **The biggest win was not in this program.** Native binaries link the newest
 `libtallow.a` on disk; when the engine is built in debug, that archive is the
