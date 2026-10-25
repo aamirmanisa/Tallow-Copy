@@ -313,6 +313,43 @@ What the first working binary exposed — every one invisible until it ran:
    variables on the native plane — the ident is emitted as an undefined global
    (`@tallow.e`). `if let Err(e) = r` does bind it.
 
+### Wave 3 — byte-level resume (2026-10-25)
+
+New primitives, each wired through every layer or it does not exist:
+
+- `fs.copy_range(src, dst, offset, len)` — append a byte range; a short read is
+  an error, never a silent partial append. Carries the source's mtime, so a
+  resumed file is not re-copied on the next run.
+- `fs.set_mtime(path, epoch_secs)` — for callers that resume and then want the
+  timestamp restored separately.
+- `Transfer.hash_prefix(path, len)` — BLAKE3 of the first `len` bytes.
+
+10. **A stdlib function needs four edits, not three.** Interpreter dispatch
+    (`src/stdlib/<module>.rs`), the FFI in `src/runtime/`, the codegen
+    declaration + emitter + dispatch arm, and the `stdlib/*.tl` declaration.
+    `Transfer.*` statics need a **fifth**: `interp.rs` resolves them through a
+    hardcoded sentinel list (`call_transfer_sentinel`), so a declared, dispatched
+    function still dies with `undefined function: Transfer.hash_prefix` until it
+    is named there too.
+11. **`?` loses the payload's kind.** `fn flag() -> Result<bool> { Ok(true) }`
+    then `let b = flag()?; print(b.to_string())` prints `1` natively and `true`
+    in the interpreter; a `Result<String>` payload prints as the pointer's
+    decimal value (`204808618838944`). Reproduced on the installed 1.5.2 build,
+    so it predates this wave. Not fixed yet — it needs the `?` lowering to take
+    the payload type from the callee's declared `Result<T>`.
+12. **A module call can poison the next one's receiver inference.** With
+    `fs.copy_range(...)` and `fs.set_mtime(...)` in the same function, the
+    second fails to lower: `no lowering for method 'set_mtime' … obj_ty=I8Ptr`
+    — the receiver is typed as a string. Both calls build fine in isolation, and
+    removing the `copy_range` call makes the build pass. Not root-caused; the
+    program avoids it by having `copy_range` carry the mtime, so there is only
+    one module call in the block.
+13. **Match payloads need an explicit annotation on the native plane.** The
+    layout lookup does not follow the scrutinee's type through a `match` arm:
+    `Ok(x) -> { let y: Struct = x … }` is required, and a field name shared with
+    another struct is a hard error even when only one struct is in scope.
+
 Source-level traps kept in the program itself: annotate struct-typed bindings
-(`let job: Job = f()?`), avoid a field name shared by two structs, and never
-rely on a `Result` binding around `fs.delete` (native fails loudly instead).
+(`let job: Job = f()?`), give each struct's fields distinct names, annotate
+match payloads before reading their fields, and never rely on a `Result`
+binding around `fs.delete` (native fails loudly instead).

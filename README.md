@@ -155,6 +155,38 @@ with `--release` first makes the archive the optimized one: hashing 436 ms,
 verified copy 702 ms, binary 110 MB. A 10.4× difference caused entirely by
 which archive the linker picked.
 
+### Resuming an interrupted copy (`--resume`)
+
+A transfer that dies half way leaves a short destination. With `--resume`, a file
+of 8 MiB or more is completed rather than restarted: the bytes already present are
+hashed (`Transfer.hash_prefix`) and compared with the source's first N bytes, and
+only if they match is the remainder appended (`fs.copy_range`). A destination that
+is not a provable prefix — stale, torn, or from a different source — is deleted
+and copied whole. The tool never appends to bytes it could not prove, because size
+alone cannot tell "half this file" from "the wrong half of another one".
+
+**Measured, on this box, and it argues against the default:**
+
+- 256 MiB file, 90% already present, native binary, 3 runs each
+- `copy` (verify): **994–998 ms** · `copy --resume` (verify): **1284–1434 ms**
+- `copy --no-verify`: **223–226 ms** · `copy --resume --no-verify`: **527–535 ms**
+
+Resume is *slower* on local storage in every configuration — 30% slower with
+verification, 2.3× slower without. Proving the prefix costs two full-length reads
+(source and destination, hashed), while re-copying costs one kernel copy of the
+whole file. There is nothing to win: the check reads more than the copy writes.
+
+So it is opt-in, and the honest recommendation is: leave it off for local disks
+and local trees. It can only pay when the destination is on a slow or flaky link
+*and* the tail is large — an upload to a NAS over a congested link, where
+re-sending 256 MiB costs minutes and re-reading 90% costs less. Measure your case
+before trusting it.
+
+`copy_range` carries the source's mtime, so a resumed file is indistinguishable
+from a whole-file copy on the next run and is skipped rather than re-copied. The
+summary prints `resumed: N` when the path was used; the JSON carries
+`"resumed": N`.
+
 ### Native plane
 
 The same source compiles to a native binary and runs on the interpreter. `tallow`
@@ -199,8 +231,11 @@ clang's.
   target. Dangling links are reported and skipped.
 - **Ownership (uid/gid) and xattrs/ACLs are not preserved.** The run is done as
   the invoking user; `--preserve=all` semantics are out of scope for 0.1.
-- **No resume after interruption.** Re-running skips files whose size and mtime
-  already match, which approximates resume at file granularity, not byte level.
+- **Resume is opt-in by size, and only for provable prefixes.** A file of 8 MiB
+  or more whose destination exists but is short is resumed only when the bytes
+  already present hash identically to the source's first N bytes; anything else
+  is replaced and copied whole. Below 8 MiB the prefix check costs more than a
+  fresh copy, so it is skipped. A resumed file is still verified end to end.
 - **A hard I/O error aborts the run.** `FileCopy.copy_metadata` (the primitive
   used here, because it preserves mode and mtime) returns a value rather than a
   `Result`, so a failure surfaces as a runtime error. The engine now also offers
@@ -250,20 +285,22 @@ Reading these numbers:
 - Run-to-run variance on this host was 168–230 ms for `cp -a` on dataset A
   while page cache warmed; treat single-digit percentages as noise.
 
-## Why it is interpreter-executed
+## Why the native plane exists now
 
-The engine cannot compile this program to a native binary: the native backend
-has no lowering for the primitives it needs (`FileCopy.copy_metadata`,
-`fs.stat`, `fs.list_dir`, `fs.copy`, `process.spawn`, `time.monotonic`). Only
-`Transfer.hash` and `Transfer.chunk` lower natively today. Every build attempt
-fails with `native backend has no lowering for method …`, and the engine then
-falls back to the interpreter at run time.
+The tool was interpreter-only for its first life: engine 1.5.2 could not lower
+the primitives it needs (`FileCopy.copy_metadata`, `fs.stat`, `fs.list_dir`,
+`fs.delete`, `time.monotonic`), so every build attempt failed with
+`native backend has no lowering for method …` and the program silently ran on
+the interpreter.
 
-That is a property of engine 1.5.2, not of this tool. See
-[`docs/ENGINE-FINDINGS.md`](docs/ENGINE-FINDINGS.md) for the ten findings behind
-this design, each with a reproduction command, and
-[`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and the path to a
-native build.
+That is fixed. The engine wave on 2026-10-25 corrected nine codegen defects and
+the build ships as an installed build (`docs/ENGINE-FINDINGS.md` has each defect
+with its reproduction), so `./tallowx` now prefers a native binary built from the
+current source. The interpreter remains the fallback for a fresh clone, and
+`TALLOWX_PLANE=interpret` forces it.
+
+The numbers below were measured on both planes; see the table for which is
+which.
 
 ## Repository
 

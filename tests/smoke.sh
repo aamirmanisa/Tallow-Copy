@@ -67,6 +67,30 @@ rm -rf "$ROOT/one.bin"
 run copy "$SRC/a/b/rand.bin" "$ROOT/one.bin"
 if cmp -s "$SRC/a/b/rand.bin" "$ROOT/one.bin"; then pass "single-file copy is identical"; else fail "single-file copy differs"; fi
 
+# 4b · without --resume a short destination is re-copied, not resumed
+mkdir -p "$ROOT/rsrc/sub" "$ROOT/rdst/sub"
+head -c 12582912 /dev/urandom > "$ROOT/rsrc/sub/big.bin"
+head -c 5242880 "$ROOT/rsrc/sub/big.bin" > "$ROOT/rdst/sub/big.bin"
+run copy "$ROOT/rsrc" "$ROOT/rdst"
+if grep -q 'resumed:' "$ROOT/out.log"; then fail "resume ran without --resume"; else pass "resume is opt-in: no --resume, no resume"; fi
+if cmp -s "$ROOT/rsrc/sub/big.bin" "$ROOT/rdst/sub/big.bin"; then pass "opt-out copy still produced the right bytes"; else fail "opt-out copy produced wrong bytes"; fi
+
+# 5 · byte-level resume: a truncated destination is completed, not restarted
+mkdir -p "$ROOT/rsrc/sub" "$ROOT/rdst/sub"
+head -c 12582912 /dev/urandom > "$ROOT/rsrc/sub/big.bin"      # 12 MiB, over RESUME_MIN
+head -c 5242880  "$ROOT/rsrc/sub/big.bin" > "$ROOT/rdst/sub/big.bin"   # interrupted at 5 MiB
+run copy --resume "$ROOT/rsrc" "$ROOT/rdst"
+if grep -q 'resumed: 1' "$ROOT/out.log"; then pass "resume: tail-only copy reported"; else fail "resume was not used: $(grep -m1 'resumed\|copy:' "$ROOT/out.log")"; fi
+if cmp -s "$ROOT/rsrc/sub/big.bin" "$ROOT/rdst/sub/big.bin"; then pass "resume: file byte-identical after completion"; else fail "resume produced a different file"; fi
+# and the resumed file is skipped next time (mtime restored, not "now")
+run copy --resume "$ROOT/rsrc" "$ROOT/rdst"
+if grep -q 'copied: 0\|copy: 0 file' "$ROOT/out.log"; then pass "resume: completed file is skipped next run"; else fail "resumed file was copied again"; fi
+
+# 6 · a destination that is NOT a prefix is replaced, not appended to
+head -c 5242880 /dev/urandom > "$ROOT/rdst/sub/big.bin"        # same size, wrong bytes
+run copy --resume "$ROOT/rsrc" "$ROOT/rdst"
+if cmp -s "$ROOT/rsrc/sub/big.bin" "$ROOT/rdst/sub/big.bin"; then pass "resume: mismatched prefix was replaced"; else fail "resume appended to a mismatched prefix"; fi
+
 # 6 · move removes verified sources, leaves nothing behind
 MVS="$ROOT/mvsrc"; MVD="$ROOT/mvdst"
 cp -a "$SRC" "$MVS"

@@ -13,7 +13,7 @@
 //     docs/DESIGN.md on which engine copy primitive is memory-bound
 //   * one machine-readable summary line, and exit codes that mean something
 //
-// Usage (the tool runs on the Tallow interpreter; see DESIGN.md for why):
+// Usage (the launcher prefers a native build and falls back to the interpreter):
 //   tallow run tallowx.tl -- copy   SRC DST [--no-verify] [--json]
 //   tallow run tallowx.tl -- move   SRC DST [...]
 //   tallow run tallowx.tl -- plan   SRC DST
@@ -187,12 +187,21 @@ fn enumerate(src: String) -> Result<Job> {
 
 // ── transfer ────────────────────────────────────────────────────────────
 
+/// What a single file's copy did. Field names are distinct from `CopyResult`'s
+/// on purpose: a bare `x.metadata_preserved` is ambiguous between two known
+/// structs, and a match arm only learns its payload type from the annotation.
+struct CopyOutcome {
+    meta_restored: bool,
+    resumed_from: i64,
+}
+
 struct RunStats {
     copied: i64,
     skipped: i64,
     failed: i64,
     verified: i64,
     metadata_ok: i64,
+    resumed: i64,
     bytes: i64,
     elapsed_ms: i64,
 }
@@ -206,9 +215,57 @@ fn mbps(bytes: i64, ms: i64) -> i64 {
 }
 
 /// Copy one file, then verify by reading both sides back.
-fn copy_one(src: String, dst: String, verify: bool) -> Result<bool> {
+/// Files at least this large are worth resuming: below it, hashing the prefix
+/// costs more than re-copying the whole file.
+const RESUME_MIN: i64 = 8388608
+
+/// How many bytes of `dst` are a provable prefix of `src` (0 = none).
+///
+/// A partial destination is resumed only when its first N bytes hash the same as
+/// the source's first N bytes. That check is the point: appending to a
+/// mismatched file would produce a byte-wrong result that a size check alone
+/// would call complete.
+fn resumable_bytes(src: String, dst: String, size: i64) -> Result<i64> {
+    if !fs.exists(dst) {
+        return Ok(0)
+    }
+    let have = fs.stat(dst)?
+    if have.is_dir || have.size <= 0 || have.size >= size {
+        return Ok(0)
+    }
+    let a = Transfer.hash_prefix(src, have.size)
+    let b = Transfer.hash_prefix(dst, have.size)
+    if a == b { Ok(have.size) } else { Ok(0) }
+}
+
+/// Copy one file, then verify by reading both sides back.
+fn copy_one(src: String, dst: String, verify: bool, allow_resume: bool) -> Result<CopyOutcome> {
     mkdir_p(dirname(dst))?
-    let r = FileCopy.copy_metadata(src, dst)
+    let info = fs.stat(src)?
+    var resumed: i64 = 0
+    var kept_meta = false
+
+    if allow_resume && info.size >= RESUME_MIN {
+        let off = resumable_bytes(src, dst, info.size)?
+        if off > 0 {
+            // copy_range carries the source's mtime, so a resumed file is
+            // indistinguishable from a whole-file copy on the next run.
+            fs.copy_range(src, dst, off, info.size - off)
+            resumed = off
+            kept_meta = true
+        }
+    }
+
+    if resumed == 0 {
+        // Not resumable: replace a stale destination outright rather than
+        // appending to it.
+        if info.size >= RESUME_MIN && fs.exists(dst) {
+            fs.delete(dst)
+        }
+        let r: CopyResult = FileCopy.copy_metadata(src, dst)
+        kept_meta = r.metadata_preserved
+    }
+
     if verify {
         let h_src = Transfer.hash(src)
         let h_dst = Transfer.hash(dst)
@@ -216,7 +273,7 @@ fn copy_one(src: String, dst: String, verify: bool) -> Result<bool> {
             bail "blake3 mismatch after copy: " + dst
         }
     }
-    Ok(r.metadata_preserved)
+    Ok(CopyOutcome { meta_restored: kept_meta, resumed_from: resumed })
 }
 
 fn add_stats(a: RunStats, b: RunStats) -> RunStats {
@@ -226,18 +283,19 @@ fn add_stats(a: RunStats, b: RunStats) -> RunStats {
         failed: a.failed + b.failed,
         verified: a.verified + b.verified,
         metadata_ok: a.metadata_ok + b.metadata_ok,
+        resumed: a.resumed + b.resumed,
         bytes: a.bytes + b.bytes,
         elapsed_ms: a.elapsed_ms + b.elapsed_ms,
     }
 }
 
-fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bool) -> Result<RunStats> {
+fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bool, allow_resume: bool) -> Result<RunStats> {
     let job: Job = enumerate(src)?
     let root = job.root
     let files = job.targets
     let single = fs.is_file(src)
 
-    var stats = RunStats { copied: 0, skipped: 0, failed: 0, verified: 0, metadata_ok: 0, bytes: 0, elapsed_ms: 0 }
+    var stats = RunStats { copied: 0, skipped: 0, failed: 0, verified: 0, metadata_ok: 0, resumed: 0, bytes: 0, elapsed_ms: 0 }
     let t0 = time.monotonic()
 
     if !dry {
@@ -278,14 +336,20 @@ fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bo
                     print("plan  " + from + " -> " + to)
                 }
             } else {
-                let outcome = copy_one(from, to, verify)
+                let outcome = copy_one(from, to, verify, allow_resume)
                 match outcome {
-                    Ok(meta) -> {
+                    Ok(done) -> {
+                        // The native plane cannot infer a match payload's struct
+                        // layout from the signature, so name the type.
+                        let out: CopyOutcome = done
                         let a = fs.stat(from)?
                         stats.copied = stats.copied + 1
                         stats.bytes = stats.bytes + a.size
-                        if meta {
+                        if out.meta_restored {
                             stats.metadata_ok = stats.metadata_ok + 1
+                        }
+                        if out.resumed_from > 0 {
+                            stats.resumed = stats.resumed + 1
                         }
                         if verify {
                             stats.verified = stats.verified + 1
@@ -361,10 +425,11 @@ fn usage() {
     print("tallowx — verified copy/move for local and mounted storage")
     print("")
     print("  tallowx plan   SRC DST")
-    print("  tallowx copy   SRC DST [--no-verify] [--json]")
-    print("  tallowx move   SRC DST [--no-verify] [--json]")
+    print("  tallowx copy   SRC DST [--resume] [--no-verify] [--json]")
+    print("  tallowx move   SRC DST [--resume] [--no-verify] [--json]")
     print("  tallowx verify SRC DST")
     print("")
+    print("  --resume     complete a short destination from a hash-verified prefix")
     print("  --no-verify  skip BLAKE3 read-back verification (faster; verifies nothing)")
     print("  --json       one machine-readable summary line")
 }
@@ -390,6 +455,7 @@ fn main() {
     let dst = pos[2]
     let verify = !has_flag(argv, "--no-verify")
     let json = has_flag(argv, "--json")
+    let allow_resume = has_flag(argv, "--resume")
 
     if cmd == "verify" {
         let outcome = verify_tree(src, dst)
@@ -415,18 +481,21 @@ fn main() {
         process.exit(2)
     }
 
-    let outcome = run(cmd, src, dst, verify, cmd == "plan", json)
+    let outcome = run(cmd, src, dst, verify, cmd == "plan", json, allow_resume)
     match outcome {
         // The native plane cannot type a `match` binding from the scrutinee's
         // Result payload, so the annotation here is what gives `stats` a layout.
         Ok(raw) -> {
             let stats: RunStats = raw
             if json {
-                print('{"command":"' + cmd + '","copied":' + stats.copied.to_string() + ',"skipped":' + stats.skipped.to_string() + ',"failed":' + stats.failed.to_string() + ',"verified":' + stats.verified.to_string() + ',"metadata_preserved":' + stats.metadata_ok.to_string() + ',"bytes":' + stats.bytes.to_string() + ',"elapsed_ms":' + stats.elapsed_ms.to_string() + ',"mbps":' + mbps(stats.bytes, stats.elapsed_ms).to_string() + '}')
+                print('{"command":"' + cmd + '","copied":' + stats.copied.to_string() + ',"skipped":' + stats.skipped.to_string() + ',"failed":' + stats.failed.to_string() + ',"verified":' + stats.verified.to_string() + ',"metadata_preserved":' + stats.metadata_ok.to_string() + ',"resumed":' + stats.resumed.to_string() + ',"bytes":' + stats.bytes.to_string() + ',"elapsed_ms":' + stats.elapsed_ms.to_string() + ',"mbps":' + mbps(stats.bytes, stats.elapsed_ms).to_string() + '}')
             } else {
                 print("")
                 print(cmd + ": " + stats.copied.to_string() + " file(s), " + stats.bytes.to_string() + " bytes, " + stats.elapsed_ms.to_string() + " ms")
                 print("  verified: " + stats.verified.to_string() + " | metadata preserved: " + stats.metadata_ok.to_string() + " | skipped: " + stats.skipped.to_string() + " | failed: " + stats.failed.to_string())
+                if stats.resumed > 0 {
+                    print("  resumed: " + stats.resumed.to_string() + " file(s) completed from a verified prefix")
+                }
                 print("  throughput: " + mbps(stats.bytes, stats.elapsed_ms).to_string() + " MiB/s")
             }
             if stats.failed > 0 {

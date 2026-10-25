@@ -82,6 +82,30 @@ rc=$?
 if [ $rc -ne 0 ] && grep -q 'differs\|mismatch\|failed' "$ROOT/out.log"; then pass "verify exits non-zero and names the corruption"; else fail "verify missed a single flipped byte (exit $rc)"; fi
 printf 'hello\n' > "$DST/a/small.txt"
 
+# 4b · without --resume a short destination is re-copied, not resumed
+mkdir -p "$ROOT/rsrc/sub" "$ROOT/rdst/sub"
+head -c 12582912 /dev/urandom > "$ROOT/rsrc/sub/big.bin"
+head -c 5242880 "$ROOT/rsrc/sub/big.bin" > "$ROOT/rdst/sub/big.bin"
+run copy "$ROOT/rsrc" "$ROOT/rdst"
+if grep -q 'resumed:' "$ROOT/out.log"; then fail "resume ran without --resume"; else pass "resume is opt-in: no --resume, no resume"; fi
+if cmp -s "$ROOT/rsrc/sub/big.bin" "$ROOT/rdst/sub/big.bin"; then pass "opt-out copy still produced the right bytes"; else fail "opt-out copy produced wrong bytes"; fi
+
+# 5 · byte-level resume: a truncated destination is completed, not restarted
+mkdir -p "$ROOT/rsrc/sub" "$ROOT/rdst/sub"
+head -c 12582912 /dev/urandom > "$ROOT/rsrc/sub/big.bin"      # 12 MiB, over RESUME_MIN
+head -c 5242880  "$ROOT/rsrc/sub/big.bin" > "$ROOT/rdst/sub/big.bin"   # interrupted at 5 MiB
+run copy --resume "$ROOT/rsrc" "$ROOT/rdst"
+if grep -q 'resumed: 1' "$ROOT/out.log"; then pass "resume: tail-only copy reported"; else fail "resume was not used: $(grep -m1 'resumed\|copy:' "$ROOT/out.log")"; fi
+if cmp -s "$ROOT/rsrc/sub/big.bin" "$ROOT/rdst/sub/big.bin"; then pass "resume: file byte-identical after completion"; else fail "resume produced a different file"; fi
+# and the resumed file is skipped next time (mtime restored, not "now")
+run copy --resume "$ROOT/rsrc" "$ROOT/rdst"
+if grep -q 'copied: 0\|copy: 0 file' "$ROOT/out.log"; then pass "resume: completed file is skipped next run"; else fail "resumed file was copied again"; fi
+
+# 6 · a destination that is NOT a prefix is replaced, not appended to
+head -c 5242880 /dev/urandom > "$ROOT/rdst/sub/big.bin"        # same size, wrong bytes
+run copy --resume "$ROOT/rsrc" "$ROOT/rdst"
+if cmp -s "$ROOT/rsrc/sub/big.bin" "$ROOT/rdst/sub/big.bin"; then pass "resume: mismatched prefix was replaced"; else fail "resume appended to a mismatched prefix"; fi
+
 # 6 · move removes the source tree
 mkdir -p "$ROOT/mv-src/x"
 printf 'move me\n' > "$ROOT/mv-src/x/f.txt"
