@@ -31,7 +31,7 @@ copy: 4 file(s), 6600006 bytes, 22 ms
 | | |
 |---|---|
 | Version | 0.2.0 |
-| Engine | Tallow 1.5.6 (both planes; `--resume` needs 1.5.5+) |
+| Engine | Tallow 1.5.5 or newer (both planes) |
 | Platforms | wherever `tallow` runs — measured on linux-aarch64 |
 | Tests | 28 native checks + the interpreter suite (`tests/native.sh`, `tests/smoke.sh`) |
 | Licence | MIT |
@@ -240,7 +240,7 @@ The same source compiles to a native binary and runs on the interpreter. The
 engine that first built it natively still printed `1.5.2` while carrying the nine
 codegen fixes listed in `docs/ENGINE-FINDINGS.md` — which is why the suites probe
 capability by execution instead of trusting the version string. Releases from
-1.5.5 onward state the version correctly, and 1.5.6 also keeps the payload kind
+1.5.5 onward state the version correctly, and 1.5.7 keeps the payload kind
 through `?`.
 
 `tests/native.sh` builds the program with whatever engine `TALLOW` points at and
