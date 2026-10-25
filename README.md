@@ -36,11 +36,19 @@ copy: 4 file(s), 6600006 bytes, 22 ms
 
 ## Install
 
-You need the Tallow engine (`tallow` on `PATH`). On linux-aarch64:
+You need the Tallow engine (`tallow` on `PATH`) and the libraries it links
+against. On Debian/Ubuntu:
 
 ```console
+$ sudo apt-get install -y clang liblzma-dev libbz2-dev
 $ curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh | bash
 ```
+
+On Arch/CachyOS: `sudo pacman -S clang xz bzip2`, then the same installer.
+`clang` is a **run-time** dependency, not just a build-time one — the engine
+shells out to it for every program it compiles, including its own install
+probe. Without `liblzma`/`libbz2` the probe fails to link and the installer
+exits non-zero (found the hard way in this repo's CI).
 
 Then:
 
