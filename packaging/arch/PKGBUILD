@@ -1,0 +1,67 @@
+# Maintainer: Aamir Manisa <tallowteam@proton.me>
+#
+# tallowx is one Tallow source file compiled by the Tallow engine. The engine is
+# a hard build-time AND run-time dependency: building shells out to clang, and
+# the resulting binary links the engine's runtime archive, which is why
+# libtallow.a must be present next to the `tallow` binary at build time.
+#
+# The engine is not in the official repos and not in AUR; install it first with
+# the upstream installer (see README.md). makepkg will refuse without it, which
+# is the correct behaviour — a silent build failure here would be worse.
+
+pkgname=tallowx
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Verified copy/move for local and mounted storage, written entirely in Tallow"
+arch=('x86_64' 'aarch64')
+url="https://github.com/aamirmanisa/Tallow-Copy"
+license=('MIT')
+depends=('clang' 'xz' 'bzip2')
+makedepends=('clang')
+# Deliberately not listed in depends: the engine has no package. This is a
+# documented precondition, checked in prepare().
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')   # replace with `updpkgsums` output once the tag exists
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  if ! command -v tallow >/dev/null 2>&1; then
+    echo "ERROR: the Tallow engine is not on PATH." >&2
+    echo "Install it first: curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh | bash" >&2
+    exit 1
+  fi
+  if ! command -v clang >/dev/null 2>&1; then
+    echo "ERROR: clang is required — the engine shells out to it to compile." >&2
+    exit 1
+  fi
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  # Build in a subdirectory: `tallow build` writes the executable next to the
+  # source, and the repo root already has a `tallowx` launcher script that must
+  # not be overwritten by a 110 MB ELF.
+  mkdir -p build
+  cp tallowx.tl build/
+  ( cd build && tallow build tallowx.tl --release )
+  ./build/tallowx --help >/dev/null || {
+    echo "ERROR: the built binary does not run" >&2
+    exit 1
+  }
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  # The interpreter suite needs no native build; the native suite rebuilds the
+  # binary and exercises --delete, --checksum and --resume end to end.
+  bash tests/smoke.sh
+  bash tests/native.sh
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 build/tallowx "$pkgdir/usr/bin/tallowx"
+  install -Dm644 tallowx.tl      "$pkgdir/usr/share/tallowx/tallowx.tl"
+  install -Dm644 README.md       "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 LICENSE         "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

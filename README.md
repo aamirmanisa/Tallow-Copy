@@ -46,7 +46,9 @@ $ sudo apt-get install -y clang liblzma-dev libbz2-dev
 $ curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh | bash
 ```
 
-On Arch/CachyOS: `sudo pacman -S clang xz bzip2`, then the same installer.
+On Arch/CachyOS: `sudo pacman -S clang xz bzip2`, then the same installer, then
+`cd packaging/arch && makepkg -si` for the tool itself (the PKGBUILD refuses to
+build without the engine rather than failing halfway).
 `clang` is a **run-time** dependency, not just a build-time one — the engine
 shells out to it for every program it compiles, including its own install
 probe. Without `liblzma`/`libbz2` the probe fails to link and the installer
