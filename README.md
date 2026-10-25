@@ -97,6 +97,24 @@ time (ENGINE-FINDINGS #2-adjacent); the second is the engine stating which
 execution plane it used, which it never suppresses. Redirect stderr if you want
 clean logs: `./tallowx copy a b 2>/dev/null`.
 
+### Parallel copies (`--workers N`)
+
+`--workers N` splits the file list into N contiguous slices and copies each in a
+`spawn`ed task, collecting counts through per-worker stat files (the
+interpreter's `await` on a spawn handle returns 0, so a return value cannot carry
+them). It is correct — 4,000 files, `diff -r` identical, 0 failed — but it is
+**not faster in the interpreter**:
+
+| 4,000 x 200-byte files | wall |
+|---|---|
+| sequential | 7.63 s |
+| `--workers 8` | 8.55 s |
+
+The interpreter serialises evaluation and the parent spins while waiting, so the
+flag is opt-in and unadvertised. It exists for the compiled path, where `spawn`
+maps to pthreads with a bounded live-task pool; that path is blocked only by the
+missing `FileCopy`/`fs` lowerings.
+
 ### What is guaranteed
 
 - **Integrity.** With verification on (the default), every copied file is
@@ -115,10 +133,11 @@ clean logs: `./tallowx copy a b 2>/dev/null`.
   the invoking user; `--preserve=all` semantics are out of scope for 0.1.
 - **No resume after interruption.** Re-running skips files whose size and mtime
   already match, which approximates resume at file granularity, not byte level.
-- **A hard I/O error aborts the run.** The engine's copy primitive returns a
-  value, not a `Result`, so a failure surfaces as a runtime error; the tool
-  cannot catch it and continue with the rest of the tree. Missing or dangling
-  sources are screened out before the call.
+- **A hard I/O error aborts the run.** `FileCopy.copy_metadata` (the primitive
+  used here, because it preserves mode and mtime) returns a value rather than a
+  `Result`, so a failure surfaces as a runtime error. The engine now also offers
+  `copy.try_file`, which does return `Result<CopyStats>` and keeps a batch going
+  — it does not preserve metadata, which is why this tool does not use it yet.
 
 ## Benchmarks
 
