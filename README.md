@@ -152,8 +152,10 @@ Reading these numbers:
   userspace fast path to win here.
 - Verification costs roughly **3–4× the copy time on a large file** — it is
   three reads and one write instead of one read and one write.
-- Many small files are dominated by **~286 ms of interpreter startup** plus a
-  per-file interpreter dispatch. `tallowx` is ~7–8× slower than `cp` on that
+- Many small files are dominated by **~286 ms of engine start-up** (the
+  `tallow run` front end; `--interpret` skips to ~29 ms and a native binary
+  starts in ~4 ms — measured on a trivial program) plus a per-file interpreter
+  dispatch. `tallowx` is ~7–8× slower than `cp` on that
   shape. If you copy thousands of tiny files and do not need verification, use
   `cp -a`.
 - A 10,000-file tree (100 dirs, 512 B each) copied and diffed identical in
@@ -186,6 +188,7 @@ bench/bench.py      benchmark harness → bench/results.json
 docs/DESIGN.md      architecture and decisions
 docs/ENGINE-FINDINGS.md  engine defects and gaps found while building this
 docs/PRIOR-ART.md   what other transfer tools do, and what was deliberately not researched
+docs/OPTIMIZATION-REPORT.md  measured analysis, prioritised engine work, verification gates
 ```
 
 ## Prior art and scope
