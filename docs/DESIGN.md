@@ -102,7 +102,7 @@ matched.
 
 `tests/smoke.sh` builds a fixture with the shapes that break naive copiers —
 nested dirs, an empty dir, three permission modes, pinned mtimes, a unicode
-filename, a file larger than a page cache read — and asserts 11 properties by
+filename, a file larger than a page cache read — and asserts 12 properties by
 running the tool: plan writes nothing; copy is byte-identical; empty dirs
 survive; mode+mtime match; a second run is a no-op; a flipped byte is caught
 with exit 1; single-file copy; move empties the source; relative paths work;

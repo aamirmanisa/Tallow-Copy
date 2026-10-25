@@ -78,6 +78,9 @@ if [ "$left" -eq 0 ] && diff -r "$SRC" "$MVD" >/dev/null 2>&1; then pass "move e
 mkdir -p "$ROOT/rel" && cp -a "$SRC" "$ROOT/rel/src"
 ( cd "$ROOT/rel" && "$TALLOW" run "$TL" -- copy src dst >"$ROOT/rel.log" 2>&1 )
 if [ $? -eq 0 ] && diff -r "$SRC" "$ROOT/rel/dst" >/dev/null 2>&1; then pass "relative source and destination"; else fail "relative paths broken"; tail -3 "$ROOT/rel.log"; fi
+# A relative destination must never resolve to an absolute path. Running as
+# root hides that bug (mkdir /dst succeeds), so assert it directly.
+if [ -e /dst ]; then fail "relative copy created an absolute /dst"; rmdir /dst/a/b/c /dst/a/b /dst/a /dst 2>/dev/null; else pass "relative copy wrote nothing outside the working directory"; fi
 
 # 8 · usage exit code
 "$TALLOW" run "$TL" >"$ROOT/out.log" 2>&1; rc=$?

@@ -57,18 +57,26 @@ fn basename(path: String) -> String {
     last
 }
 
+/// Parent directory, preserving whether the path was relative.
+/// dirname("a/b.txt") = "a" · dirname("b.txt") = "." · dirname("/a/b.txt") = "/a".
 fn dirname(path: String) -> String {
+    let absolute = path.starts_with("/")
     let parts = path.split("/")
     var out = ""
     var i = 0
     while i + 1 < parts.len() {
-        if parts[i] != "" || i > 0 {
-            out = out + "/" + parts[i]
+        let p = parts[i]
+        if !(i == 0 && p == "") {
+            if out == "" {
+                out = if absolute { "/" + p } else { p }
+            } else {
+                out = out + "/" + p
+            }
         }
         i = i + 1
     }
     if out == "" {
-        out = "/"
+        out = if absolute { "/" } else { "." }
     }
     out
 }

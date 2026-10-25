@@ -31,7 +31,7 @@ copy: 4 file(s), 6600006 bytes, 22 ms
 | Version | 0.1.0 |
 | Engine | Tallow 1.5.2 (interpreter plane) |
 | Platforms | wherever `tallow` runs — measured on linux-aarch64 |
-| Tests | 11/11 smoke checks pass (`tests/smoke.sh`) |
+| Tests | 12/12 smoke checks pass (`tests/smoke.sh`) |
 | Licence | MIT |
 
 ## Install
@@ -179,7 +179,7 @@ native build.
 ```
 tallowx.tl          the tool — one Tallow program, ~380 lines
 tallowx             launcher (exec tallow run …)
-tests/smoke.sh      11 end-to-end checks
+tests/smoke.sh      12 end-to-end checks
 bench/bench.py      benchmark harness → bench/results.json
 docs/DESIGN.md      architecture and decisions
 docs/ENGINE-FINDINGS.md  engine defects and gaps found while building this
