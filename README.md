@@ -1,5 +1,7 @@
 # tallowx
 
+[![ci](https://github.com/aamirmanisa/Tallow-Copy/actions/workflows/ci.yml/badge.svg)](https://github.com/aamirmanisa/Tallow-Copy/actions/workflows/ci.yml)
+
 **A verified copy/move tool for local disks and mounted NAS storage, written in
 [Tallow](https://github.com/aamirmanisa/Tallow-Language).**
 
