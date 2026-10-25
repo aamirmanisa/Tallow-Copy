@@ -107,6 +107,48 @@ shipped as a switch that implies a speedup it does not deliver: `spawn` with a
 `[]String` parameter is also interpreter-only, so the flag was the single thing
 preventing `tallowx` from compiling natively at all.
 
+### Benchmarks (measured, not estimated)
+
+Host: 8-core ARM64, ext4, 16 GB RAM, page cache warm; destination deleted between
+runs; round-robin, min of 3; load average 3.0–6.7 during the runs (the box was
+compiling), so treat these as an upper bound on wall time, not a lab figure.
+Every tool's output was checked byte-identical to the source (`diff -r`).
+
+4,000 files × 200 B (16 MB, 40 dirs):
+
+| tool                      | min |
+|---------------------------|-----|
+| tallowx (native, verify)  |  92 ms |
+| tallowx (native, --no-verify) |  97 ms |
+| tallowx (interpreter)     | 640 ms |
+| `cp -a`                   | 156 ms |
+
+1,000 files × 200 KB (196 MB, 10 dirs):
+
+| tool                      | min |
+|---------------------------|-----|
+| tallowx (native, verify)  | 702 ms |
+| tallowx (native, --no-verify) | 235 ms |
+| tallowx (interpreter)     | 886 ms |
+| `cp -a`                   | 202 ms |
+
+Reading these honestly:
+- `cp -a` does no hashing and no read-back, so the like-for-like row is
+  `--no-verify`: 235 ms vs 202 ms on 196 MB, and 97 ms vs 156 ms on 16 MB.
+- Verification costs 470 ms on 196 MB (both sides read and hashed, ~840 MB/s
+  aggregate) and is nearly free on 16 MB.
+- The interpreter pays per-file overhead, so it loses on the many-small-files
+  shape (640 ms vs 92 ms) and only 1.3× on the large-file shape, where hashing
+  dominates both.
+
+**The biggest win was not in this program.** Native binaries link the newest
+`libtallow.a` on disk; when the engine is built in debug, that archive is the
+debug runtime and every FFI call runs unoptimized. Hashing 200 MB took 3,768 ms
+(binary 518 MB) and the same verification run took 7,284 ms. Building the engine
+with `--release` first makes the archive the optimized one: hashing 436 ms,
+verified copy 702 ms, binary 110 MB. A 10.4× difference caused entirely by
+which archive the linker picked.
+
 ### Native plane
 
 `tests/native.sh` builds the program with whatever engine `TALLOW` points at and
