@@ -34,6 +34,28 @@ fn has_flag(args: []String, name: String) -> bool {
 }
 
 /// Positional arguments, in order, with flags (`-…`) dropped.
+/// Read `--flag N` (or `--flag=N`) as an integer, clamped to a sane range.
+fn int_flag(args: []String, name: String, fallback: i64) -> i64 {
+    var i = 0
+    while i < args.len() {
+        let a = args[i]
+        if a == name && i + 1 < args.len() {
+            let v = args[i + 1].to_int()
+            if v < 1 { return 1 }
+            if v > 32 { return 32 }
+            return v
+        }
+        if a.starts_with(name + "=") {
+            let v = a.split("=")[1].to_int()
+            if v < 1 { return 1 }
+            if v > 32 { return 32 }
+            return v
+        }
+        i = i + 1
+    }
+    fallback
+}
+
 fn positional(args: []String) -> []String {
     var out = []
     for a in args {
@@ -197,7 +219,19 @@ fn copy_one(src: String, dst: String, verify: bool) -> Result<bool> {
     Ok(r.metadata_preserved)
 }
 
-fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bool) -> Result<RunStats> {
+fn add_stats(a: RunStats, b: RunStats) -> RunStats {
+    RunStats {
+        copied: a.copied + b.copied,
+        skipped: a.skipped + b.skipped,
+        failed: a.failed + b.failed,
+        verified: a.verified + b.verified,
+        metadata_ok: a.metadata_ok + b.metadata_ok,
+        bytes: a.bytes + b.bytes,
+        elapsed_ms: a.elapsed_ms + b.elapsed_ms,
+    }
+}
+
+fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bool, workers: i64) -> Result<RunStats> {
     let job = enumerate(src)?
     let root = job.root
     let files = job.files
@@ -210,6 +244,70 @@ fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bo
         for d in job.dirs {
             mkdir_p(dst + "/" + d)?
         }
+    }
+
+    // ── Parallel path ────────────────────────────────────────────────────
+    // Each worker owns a contiguous slice and publishes counts to a stat file;
+    // the parent sums them once every file appears. Sequential stays the
+    // default because per-file ordering and per-file output are the contract.
+    if !dry && workers > 1 {
+        let total = files.len()
+        let base = "/tmp/.tallowx-" + t0.to_string()
+        var k = 0
+        var cursor = 0
+        while k < workers {
+            let quota = total / workers
+            var slice: []String = []
+            var taken = 0
+            while cursor < total && taken < quota {
+                slice = slice.push(files[cursor])
+                cursor = cursor + 1
+                taken = taken + 1
+            }
+            if k == workers - 1 {
+                while cursor < total {
+                    slice = slice.push(files[cursor])
+                    cursor = cursor + 1
+                }
+            }
+            let stat_path = base + "-" + k.to_string() + ".stat"
+            let h = spawn worker_slice(slice, root, dst, single, src, verify, mode, stat_path)
+            k = k + 1
+        }
+
+        // Wait for completion. There is no joinable handle value in the
+        // interpreter, so completion is observed through the stat files.
+        var done = 0
+        let deadline = time.monotonic() + 3600000000000
+        while done < workers && time.monotonic() < deadline {
+            done = 0
+            var j = 0
+            while j < workers {
+                if fs.exists(base + "-" + j.to_string() + ".stat") {
+                    done = done + 1
+                }
+                j = j + 1
+            }
+        }
+
+        var j2 = 0
+        while j2 < workers {
+            let stat_path = base + "-" + j2.to_string() + ".stat"
+            if fs.exists(stat_path) {
+                stats = add_stats(stats, read_worker_stats(stat_path))
+                fs.delete(stat_path)
+            } else {
+                stats.failed = stats.failed + 1
+                if !json {
+                    print("FAIL  worker " + j2.to_string() + " never reported (timeout)")
+                }
+            }
+            j2 = j2 + 1
+        }
+
+        let tp = time.monotonic()
+        stats.elapsed_ms = (tp - t0) / 1000000
+        return Ok(stats)
     }
 
     for rel in files {
@@ -289,6 +387,85 @@ fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bo
     Ok(stats)
 }
 
+/// One worker: copy a contiguous slice of the file list and publish its counts.
+///
+/// The interpreter cannot return a value through a spawn handle (`await` on a
+/// non-task operand is a synchronous pass-through and yields 0), so the counts
+/// are written to a stat file the parent reads back. That is the only channel
+/// that works on both engines today.
+fn worker_slice(
+    slice: []String,
+    root: String,
+    dst: String,
+    single: bool,
+    src: String,
+    verify: bool,
+    mode: String,
+    stat_path: String,
+) -> i64 {
+    var copied = 0
+    var skipped = 0
+    var failed = 0
+    var verified = 0
+    var meta_ok = 0
+    var bytes = 0
+
+    for rel in slice {
+        let from = if single { src } else { root + "/" + rel }
+        let to = if single { dst } else { dst + "/" + rel }
+
+        var already = false
+        if fs.exists(to) && fs.is_file(to) {
+            let a = fs.stat(from)?
+            let b = fs.stat(to)?
+            if a.size == b.size && a.modified_at == b.modified_at {
+                already = true
+            }
+        }
+
+        if already || !fs.exists(from) {
+            skipped = skipped + 1
+        } else {
+            match copy_one(from, to, verify) {
+                Ok(meta) -> {
+                    let a = fs.stat(from)?
+                    copied = copied + 1
+                    bytes = bytes + a.size
+                    if meta { meta_ok = meta_ok + 1 }
+                    if verify { verified = verified + 1 }
+                    if mode == "move" {
+                        fs.delete(from)
+                    }
+                }
+                Err(e) -> {
+                    failed = failed + 1
+                }
+            }
+        }
+    }
+
+    fs.write_file(
+        stat_path,
+        copied.to_string() + " " + skipped.to_string() + " " + failed.to_string() + " "
+            + verified.to_string() + " " + meta_ok.to_string() + " " + bytes.to_string(),
+    )
+    return copied
+}
+
+/// Read one worker's stat file back into counters.
+fn read_worker_stats(path: String) -> RunStats {
+    let parts = fs.read_file(path).split(" ")
+    RunStats {
+        copied: parts[0].to_int(),
+        skipped: parts[1].to_int(),
+        failed: parts[2].to_int(),
+        verified: parts[3].to_int(),
+        metadata_ok: parts[4].to_int(),
+        bytes: parts[5].to_int(),
+        elapsed_ms: 0,
+    }
+}
+
 fn verify_tree(src: String, dst: String) -> Result<i64> {
     let job = enumerate(src)?
     let root = job.root
@@ -317,12 +494,16 @@ fn usage() {
     print("tallowx — verified copy/move for local and mounted storage")
     print("")
     print("  tallowx plan   SRC DST")
-    print("  tallowx copy   SRC DST [--no-verify] [--json]")
+    print("  tallowx copy   SRC DST [--no-verify] [--json] [--workers N]")
     print("  tallowx move   SRC DST [--no-verify] [--json]")
     print("  tallowx verify SRC DST")
     print("")
     print("  --no-verify  skip BLAKE3 read-back verification (faster; verifies nothing)")
     print("  --json       one machine-readable summary line")
+    print("  --workers N  copy N slices concurrently via spawn (default 1)")
+    print("               results are passed through per-worker stat files: the")
+    print("               interpreter's await on a spawn handle returns 0, so a")
+    print("               return value cannot be used to collect counts")
 }
 
 fn main() {
@@ -346,6 +527,7 @@ fn main() {
     let dst = pos[2]
     let verify = !has_flag(argv, "--no-verify")
     let json = has_flag(argv, "--json")
+    let workers = int_flag(argv, "--workers", 1)
 
     if cmd == "verify" {
         let outcome = verify_tree(src, dst)
@@ -371,7 +553,7 @@ fn main() {
         process.exit(2)
     }
 
-    let outcome = run(cmd, src, dst, verify, cmd == "plan", json)
+    let outcome = run(cmd, src, dst, verify, cmd == "plan", json, workers)
     match outcome {
         Ok(stats) -> {
             if json {
