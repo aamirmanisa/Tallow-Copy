@@ -166,6 +166,40 @@ flag fails loudly (`undefined function: fs.copy_range`) and the test suite skips
 the resume cases with a message instead of pretending they ran. Every other path
 — plain copy, verify, move, plan — works on any 1.5.x engine.
 
+### Mirroring a destination (`--delete`)
+
+`copy --delete` makes DST match SRC: copy what is missing or changed, then remove
+what the source does not have. That is the mode a backup actually runs in — a
+copy that only ever adds turns a renamed file into two files, forever.
+
+```sh
+tallowx copy ~/photos /mnt/nas/photos --delete --exclude '*.tmp'
+tallowx plan ~/photos /mnt/nas/photos --delete      # shows the prunes, writes nothing
+```
+
+Deleting is the one thing here a re-run cannot undo, so it refuses before it
+starts rather than discovering the mistake half way through:
+
+- **Plan first is free.** `plan --delete` prints every `prune` line and writes
+  nothing — the same tree walk, no side effects.
+- **Identical, nested or inverted paths are refused**, as is `move --delete`
+  (which would empty the source by definition) and a single-file source.
+- **An empty source cannot empty the destination.** If SRC has no files and DST
+  has some, that is far more likely a mistyped path than an intent; it refuses
+  unless you pass `--allow-empty`.
+- **A failed copy cancels every prune in that run.** A copy failure means the run
+  is not trustworthy, and a prune is the only part of it that destroys data.
+- **Directories go only when empty.** Files are removed first; a directory is
+  deleted only after `list_dir` says it holds nothing, so a kept file's parent is
+  never taken out from under it.
+
+`--exclude P` (repeatable) protects paths from pruning: an exact relative path, a
+directory prefix (`cache` protects `cache/…`), or a trailing `*` suffix (`*.tmp`).
+It is deliberately not a pattern language — every pattern shape here is one I can
+test exhaustively, and an untested shape in a delete path is how data goes away.
+Excluded files are also never deleted *by* a parent directory's removal, because
+the directory is only removed once empty.
+
 ### Resuming an interrupted copy (`--resume`)
 
 A transfer that dies half way leaves a short destination. With `--resume`, a file

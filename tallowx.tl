@@ -58,11 +58,33 @@ fn int_flag(args: []String, name: String, fallback: i64) -> i64 {
 
 fn positional(args: []String) -> []String {
     var out: []String = []
+    var skip_next = false
     for a in args {
-        let flag = a.starts_with("-")
-        if !flag {
-            out = out.push(a)
+        if skip_next {
+            skip_next = false
+        } else {
+            if a == "--exclude" {
+                skip_next = true
+            } else {
+                let flag = a.starts_with("-")
+                if !flag {
+                    out = out.push(a)
+                }
+            }
         }
+    }
+    out
+}
+
+/// Every value that follows `name` on the command line (`--exclude a --exclude b`).
+fn flag_values(args: []String, name: String) -> []String {
+    var out: []String = []
+    var i = 0
+    for a in args {
+        if a == name && i + 1 < args.len() {
+            out = out.push(args[i + 1])
+        }
+        i = i + 1
     }
     out
 }
@@ -185,6 +207,124 @@ fn enumerate(src: String) -> Result<Job> {
     Job { root: src, targets: walked.files, dirs: walked.dirs }
 }
 
+// ── mirror mode ─────────────────────────────────────────────────────────
+
+struct PrunePlan {
+    files: []String,
+    dirs: []String,
+}
+
+fn trim_dir(path: String) -> String {
+    var p = path
+    var cut = true
+    while cut && p.len() > 1 && p.ends_with("/") {
+        p = p.slice(0, p.len() - 1)
+        if !p.ends_with("/") {
+            cut = false
+        }
+    }
+    p
+}
+
+fn contains_path(list: []String, p: String) -> bool {
+    var hit = false
+    for x in list {
+        if x == p {
+            hit = true
+        }
+    }
+    hit
+}
+
+/// `--exclude` patterns are deliberately dumb: an exact relative path, a
+/// directory prefix, or a trailing `*` suffix match. Anything cleverer belongs
+/// in a config file, and a pattern language I cannot test exhaustively is a
+/// delete path I should not ship.
+fn pattern_hits(rel: String, pattern: String) -> bool {
+    if rel == pattern {
+        return true
+    }
+    if rel.starts_with(pattern + "/") {
+        return true
+    }
+    if pattern.starts_with("*") {
+        let suffix = pattern.slice(1, pattern.len())
+        if rel.ends_with(suffix) {
+            return true
+        }
+    }
+    false
+}
+
+fn excluded(rel: String, patterns: []String) -> bool {
+    var hit = false
+    for p in patterns {
+        if pattern_hits(rel, p) {
+            hit = true
+        }
+    }
+    hit
+}
+
+/// What the destination has and the source does not (relative paths).
+fn prune_plan(src_files: []String, src_dirs: []String, dst: String, patterns: []String) -> Result<PrunePlan> {
+    let walked: Walk = walk_root(dst, "", [], [], 0)?
+    var files: []String = []
+    for f in walked.files {
+        if !excluded(f, patterns) && !contains_path(src_files, f) {
+            files = files.push(f)
+        }
+    }
+    var dirs: []String = []
+    for d in walked.dirs {
+        if !excluded(d, patterns) && !contains_path(src_dirs, d) {
+            dirs = dirs.push(d)
+        }
+    }
+    PrunePlan { files: files, dirs: dirs }
+}
+
+/// Remove the extras. Files first, then directories — a directory is only
+/// deleted once it is empty, so a directory that still holds kept files is left
+/// alone instead of taking its contents with it.
+fn apply_prune(dst: String, plan: PrunePlan, dry: bool) -> Result<i64> {
+    var n = 0
+    for f in plan.files {
+        let full = dst + "/" + f
+        if dry {
+            print("prune   " + full)
+        } else {
+            fs.delete(full)?
+            n = n + 1
+        }
+    }
+    var pass = 0
+    var progress = true
+    while progress && pass < 64 {
+        progress = false
+        for d in plan.dirs {
+            let full = dst + "/" + d
+            if fs.is_dir(full) {
+                let left = fs.list_dir(full)?
+                if left.len() == 0 {
+                    if dry {
+                        print("prune   " + full)
+                    } else {
+                        fs.delete(full)?
+                        n = n + 1
+                    }
+                    progress = true
+                }
+            }
+        }
+        pass = pass + 1
+        if dry {
+            progress = false
+        }
+    }
+    Ok(n)
+}
+
 // ── transfer ────────────────────────────────────────────────────────────
 
 /// What a single file's copy did. Field names are distinct from `CopyResult`'s
@@ -197,6 +337,7 @@ struct CopyOutcome {
 
 struct RunStats {
     copied: i64,
+    deleted: i64,
     skipped: i64,
     failed: i64,
     verified: i64,
@@ -279,6 +420,7 @@ fn copy_one(src: String, dst: String, verify: bool, allow_resume: bool) -> Resul
 fn add_stats(a: RunStats, b: RunStats) -> RunStats {
     RunStats {
         copied: a.copied + b.copied,
+        deleted: a.deleted + b.deleted,
         skipped: a.skipped + b.skipped,
         failed: a.failed + b.failed,
         verified: a.verified + b.verified,
@@ -289,13 +431,43 @@ fn add_stats(a: RunStats, b: RunStats) -> RunStats {
     }
 }
 
-fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bool, allow_resume: bool, checksum: bool) -> Result<RunStats> {
+fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bool, allow_resume: bool, checksum: bool, mirror: bool, allow_empty: bool, patterns: []String) -> Result<RunStats> {
     let job: Job = enumerate(src)?
     let root = job.root
     let files = job.targets
     let single = fs.is_file(src)
 
-    var stats = RunStats { copied: 0, skipped: 0, failed: 0, verified: 0, metadata_ok: 0, resumed: 0, bytes: 0, elapsed_ms: 0 }
+    // -- mirror-mode guards, before a single byte is written --------------
+    if mirror {
+        if single {
+            bail "--delete needs a source directory, not a single file"
+        }
+        if mode == "move" {
+            bail "--delete and move together would empty the source; use copy"
+        }
+        if !fs.is_dir(dst) {
+            bail "--delete needs an existing destination directory: " + dst
+        }
+        let sdir = trim_dir(src)
+        let ddir = trim_dir(dst)
+        if sdir == ddir {
+            bail "--delete refuses identical source and destination: " + sdir
+        }
+        if ddir.starts_with(sdir + "/") {
+            bail "--delete refuses a destination inside the source: " + ddir
+        }
+        if sdir.starts_with(ddir + "/") {
+            bail "--delete refuses a source inside the destination: " + sdir
+        }
+        if files.len() == 0 {
+            let probe: Walk = walk_root(dst, "", [], [], 0)?
+            if probe.files.len() > 0 && !allow_empty {
+                bail "source has no files and the destination has " + probe.files.len().to_string() + "; refusing to empty it (--allow-empty overrides)"
+            }
+        }
+    }
+
+    var stats = RunStats { copied: 0, deleted: 0, skipped: 0, failed: 0, verified: 0, metadata_ok: 0, resumed: 0, bytes: 0, elapsed_ms: 0 }
     let t0 = time.monotonic()
 
     if !dry {
@@ -397,6 +569,20 @@ fn run(mode: String, src: String, dst: String, verify: bool, dry: bool, json: bo
     if mode == "move" && !dry && stats.failed == 0 && !single {
         fs.delete(src)
     }
+    // Mirror: remove what the source does not have. A failed copy means the
+    // destination is missing a file the source HAS - prune never targets that -
+    // but it also means the run is not trustworthy, so no prune happens at all.
+    if mirror {
+        if stats.failed > 0 {
+            if !json {
+                print("prune   skipped: " + stats.failed.to_string() + " copy failure(s) in this run")
+            }
+        } else {
+            let plan: PrunePlan = prune_plan(files, job.dirs, dst, patterns)?
+            let n: i64 = apply_prune(dst, plan, dry)?
+            stats.deleted = n
+        }
+    }
 
     let t1 = time.monotonic()
     stats.elapsed_ms = (t1 - t0) / 1000000
@@ -431,12 +617,15 @@ fn usage() {
     print("tallowx — verified copy/move for local and mounted storage")
     print("")
     print("  tallowx plan   SRC DST")
-    print("  tallowx copy   SRC DST [--resume] [--no-verify] [--json]")
+    print("  tallowx copy   SRC DST [--delete] [--exclude P] [--resume] [--checksum] [--no-verify] [--json]")
     print("  tallowx move   SRC DST [--resume] [--no-verify] [--json]")
     print("  tallowx verify SRC DST")
     print("")
     print("  --resume     complete a short destination from a hash-verified prefix")
     print("  --checksum   skip only after hashing both sides (catches in-place corruption)")
+    print("  --delete     mirror: remove destination files the source does not have")
+    print("  --exclude P  with --delete: keep paths matching P (exact, dir prefix, or *suffix)")
+    print("  --allow-empty  with --delete: permit an empty source to empty the destination")
     print("  --no-verify  skip BLAKE3 read-back verification (faster; verifies nothing)")
     print("  --json       one machine-readable summary line")
 }
@@ -464,6 +653,9 @@ fn main() {
     let json = has_flag(argv, "--json")
     let allow_resume = has_flag(argv, "--resume")
     let checksum = has_flag(argv, "--checksum")
+    let mirror = has_flag(argv, "--delete")
+    let allow_empty = has_flag(argv, "--allow-empty")
+    let patterns = flag_values(argv, "--exclude")
 
     if cmd == "verify" {
         let outcome = verify_tree(src, dst)
@@ -489,18 +681,21 @@ fn main() {
         process.exit(2)
     }
 
-    let outcome = run(cmd, src, dst, verify, cmd == "plan", json, allow_resume, checksum)
+    let outcome = run(cmd, src, dst, verify, cmd == "plan", json, allow_resume, checksum, mirror, allow_empty, patterns)
     match outcome {
         // The native plane cannot type a `match` binding from the scrutinee's
         // Result payload, so the annotation here is what gives `stats` a layout.
         Ok(raw) -> {
             let stats: RunStats = raw
             if json {
-                print('{"command":"' + cmd + '","copied":' + stats.copied.to_string() + ',"skipped":' + stats.skipped.to_string() + ',"failed":' + stats.failed.to_string() + ',"verified":' + stats.verified.to_string() + ',"metadata_preserved":' + stats.metadata_ok.to_string() + ',"resumed":' + stats.resumed.to_string() + ',"bytes":' + stats.bytes.to_string() + ',"elapsed_ms":' + stats.elapsed_ms.to_string() + ',"mbps":' + mbps(stats.bytes, stats.elapsed_ms).to_string() + '}')
+                print('{"command":"' + cmd + '","copied":' + stats.copied.to_string() + ',"deleted":' + stats.deleted.to_string() + ',"skipped":' + stats.skipped.to_string() + ',"failed":' + stats.failed.to_string() + ',"verified":' + stats.verified.to_string() + ',"metadata_preserved":' + stats.metadata_ok.to_string() + ',"resumed":' + stats.resumed.to_string() + ',"bytes":' + stats.bytes.to_string() + ',"elapsed_ms":' + stats.elapsed_ms.to_string() + ',"mbps":' + mbps(stats.bytes, stats.elapsed_ms).to_string() + '}')
             } else {
                 print("")
                 print(cmd + ": " + stats.copied.to_string() + " file(s), " + stats.bytes.to_string() + " bytes, " + stats.elapsed_ms.to_string() + " ms")
                 print("  verified: " + stats.verified.to_string() + " | metadata preserved: " + stats.metadata_ok.to_string() + " | skipped: " + stats.skipped.to_string() + " | failed: " + stats.failed.to_string())
+            if mirror {
+                print("  deleted: " + stats.deleted.to_string())
+            }
                 if stats.resumed > 0 {
                     print("  resumed: " + stats.resumed.to_string() + " file(s) completed from a verified prefix")
                 }

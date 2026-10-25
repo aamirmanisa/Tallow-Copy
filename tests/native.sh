@@ -157,6 +157,31 @@ mkdir -p "$ROOT/rel"
 ( cd "$ROOT/rel" && "$BIN" copy "$ROOT/mv-dst" ./out >"$ROOT/out.log" 2>&1 )
 if [ -d "$ROOT/rel/out" ] && [ ! -e /out ]; then pass "relative copy wrote nothing outside the working directory"; else fail "relative copy wrote outside the working directory"; fi
 
+# 9 · mirror mode (--delete): remove extras, keep excluded paths, plan is safe
+mkdir -p "$ROOT/msrc/sub" "$ROOT/mdst/sub" "$ROOT/mdst/stale" "$ROOT/mdst/pdfcache"
+printf 'keep\n' > "$ROOT/msrc/a.txt"
+printf 'keep\n' > "$ROOT/mdst/a.txt"; touch -r "$ROOT/msrc/a.txt" "$ROOT/mdst/a.txt"
+printf 'extra\n' > "$ROOT/mdst/sub/gone.txt"
+printf 'extra\n' > "$ROOT/mdst/stale/gone.txt"
+printf 'cached\n' > "$ROOT/mdst/pdfcache/x.tmp"
+
+"$BIN" plan "$ROOT/msrc" "$ROOT/mdst" --delete >"$ROOT/out.log" 2>&1
+[ "$(find "$ROOT/mdst" -type f | wc -l)" = 4 ] && pass "--delete in plan mode deletes nothing" || fail "plan --delete wrote to the destination"
+"$BIN" copy "$ROOT/msrc" "$ROOT/mdst" --delete --exclude '*.tmp' >"$ROOT/out.log" 2>&1
+if [ ! -e "$ROOT/mdst/sub/gone.txt" ] && [ ! -e "$ROOT/mdst/stale" ]; then pass "--delete removed extras and the emptied directory"; else fail "--delete left extras behind"; fi
+[ -f "$ROOT/mdst/pdfcache/x.tmp" ] && pass "--exclude kept the matching path" || fail "--exclude did not protect the path"
+grep -q 'deleted: 3' "$ROOT/out.log" && pass "--delete reports what it removed" || fail "--delete did not report a deletion count"
+for spec in same inside move empty; do
+  case $spec in
+    same)   "$BIN" copy "$ROOT/msrc" "$ROOT/msrc" --delete >/dev/null 2>&1 ;;
+    inside) "$BIN" copy "$ROOT/msrc" "$ROOT/msrc/sub" --delete >/dev/null 2>&1 ;;
+    move)   "$BIN" move "$ROOT/msrc" "$ROOT/mdst" --delete >/dev/null 2>&1 ;;
+    empty)  mkdir -p "$ROOT/mempty"; "$BIN" copy "$ROOT/mempty" "$ROOT/mdst" --delete >/dev/null 2>&1 ;;
+  esac
+  [ $? -ne 0 ] && pass "--delete refuses $spec" || fail "--delete allowed $spec"
+done
+[ -f "$ROOT/mdst/a.txt" ] && pass "refused runs left the destination intact" || fail "a refused --delete run still deleted files"
+
 # 8 · no arguments exits 2
 "$BIN" >/dev/null 2>&1
 [ $? -eq 2 ] && pass "no arguments exits 2" || fail "no arguments did not exit 2"

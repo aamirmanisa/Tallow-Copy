@@ -142,6 +142,32 @@ if [ $? -eq 0 ] && diff -r "$SRC" "$ROOT/rel/dst" >/dev/null 2>&1; then pass "re
 # root hides that bug (mkdir /dst succeeds), so assert it directly.
 if [ -e /dst ]; then fail "relative copy created an absolute /dst"; rmdir /dst/a/b/c /dst/a/b /dst/a /dst 2>/dev/null; else pass "relative copy wrote nothing outside the working directory"; fi
 
+# 9 · mirror mode (--delete): remove extras, keep excluded paths, plan is safe
+mkdir -p "$ROOT/msrc/sub" "$ROOT/mdst/sub" "$ROOT/mdst/stale" "$ROOT/mdst/pdfcache"
+printf 'keep\n' > "$ROOT/msrc/a.txt"
+printf 'keep\n' > "$ROOT/mdst/a.txt"; touch -r "$ROOT/msrc/a.txt" "$ROOT/mdst/a.txt"
+printf 'extra\n' > "$ROOT/mdst/sub/gone.txt"
+printf 'extra\n' > "$ROOT/mdst/stale/gone.txt"
+printf 'cached\n' > "$ROOT/mdst/pdfcache/x.tmp"
+
+XC="run"
+run plan "$ROOT/msrc" "$ROOT/mdst" --delete
+[ "$(find "$ROOT/mdst" -type f | wc -l)" = 4 ] && pass "--delete in plan mode deletes nothing" || fail "plan --delete wrote to the destination"
+run copy "$ROOT/msrc" "$ROOT/mdst" --delete --exclude '*.tmp'
+if [ ! -e "$ROOT/mdst/sub/gone.txt" ] && [ ! -e "$ROOT/mdst/stale" ]; then pass "--delete removed extras and the emptied directory"; else fail "--delete left extras behind"; fi
+[ -f "$ROOT/mdst/pdfcache/x.tmp" ] && pass "--exclude kept the matching path" || fail "--exclude did not protect the path"
+grep -q 'deleted: 3' "$ROOT/out.log" && pass "--delete reports what it removed" || fail "--delete did not report a deletion count"
+for spec in same inside move empty; do
+  case $spec in
+    same)   run copy "$ROOT/msrc" "$ROOT/msrc" --delete ;;
+    inside) run copy "$ROOT/msrc" "$ROOT/msrc/sub" --delete ;;
+    move)   run move "$ROOT/msrc" "$ROOT/mdst" --delete ;;
+    empty)  mkdir -p "$ROOT/mempty"; run copy "$ROOT/mempty" "$ROOT/mdst" --delete ;;
+  esac
+  [ $? -ne 0 ] && pass "--delete refuses $spec" || fail "--delete allowed $spec"
+done
+[ -f "$ROOT/mdst/a.txt" ] && pass "refused runs left the destination intact" || fail "a refused --delete run still deleted files"
+
 # 8 · usage exit code
 "$TALLOW" run "$TL" >"$ROOT/out.log" 2>&1; rc=$?
 if [ $rc -eq 2 ]; then pass "no arguments exits 2"; else fail "usage exit code was $rc"; fi
