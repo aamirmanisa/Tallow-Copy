@@ -250,7 +250,8 @@ source, and building `tallowx.tl` in the repo root would overwrite the launcher 
 
 ```console
 $ ./scripts/build-native.sh
-build-native: tallow 1.5.7 -> build/tallowx
+build-native: tallow 1.5.8 -> …/build/tallowx
+built: tallowx
 build-native: ok — tallowx 0.2.0
 ```
 
@@ -264,9 +265,9 @@ call ~10× slower. On a mismatch the launcher prints the reason and falls back t
 
 | Gate | Result | Measured |
 |---|---|---|
-| `tallow check tallowx.tl` | check passed: 28 items, **0 warnings** | 2026-10-26 · engine `main` `62801d4` (3 warnings on 1.5.7) |
-| `tests/smoke.sh` — interpreter plane | 29 checks, 0 failed | 2026-10-25 |
-| `tests/native.sh` — compiled binary | 29 checks, 0 failed | 2026-10-25 |
+| `tallow check tallowx.tl` | check passed: 28 items, **0 warnings** | 2026-10-26 · engine 1.5.8 (3 warnings on 1.5.7 and earlier) |
+| `tests/smoke.sh` — interpreter plane | 29 checks, 0 failed | 2026-10-26 · engine 1.5.8 |
+| `tests/native.sh` — compiled binary | 29 checks, 0 failed | 2026-10-26 · engine 1.5.8 |
 | `packaging/arch/verify-recipe.sh` | PASS — builds a 110,815,672-byte binary, assembles a 4-file package, and the installed binary copies a file from outside the tree | 2026-10-26 · engine 1.5.7 |
 
 ```console
@@ -296,18 +297,19 @@ no privileged operations.
   which is why this tool does not use it yet.
 - **On engines up to 1.5.7, three `warning[W0102]` lines are expected and are not errors**: the
   checker reported the `FileCopy` namespace and a top-level `const` as possibly undefined. Fixed in
-  the engine's `main` (`62801d4`) — on that build `tallow check` reports 0 warnings — but a released
-  engine still prints them. The engine's plane marker (`* native build unavailable …`) appears on
+  engine 1.5.8 — on that release `tallow check` reports 0 warnings, and older engines still print
+  them. The engine's plane marker (`* native build unavailable …`) appears on
   the interpreter path and is informational; `2>/dev/null` silences both.
-- **Non-ASCII string literals were mangled by engine releases up to 1.5.7** [measured 2026-10-25 ·
-  1.5.7]: the lexer decoded each UTF-8 byte as a Latin-1 character, so `—` printed as `â€"`. It is
-  fixed in the engine's `main` (`src/lexer.rs`, with a regression test); until a release carries that
-  fix, this tool keeps its own output strings ASCII so a released engine renders them correctly.
+- **Non-ASCII string literals were mangled by engine releases up to 1.5.7** [measured 2026-10-26 ·
+  1.5.7 then 1.5.8]: the lexer decoded each UTF-8 byte as a Latin-1 character, so `—` printed as
+  `â€"`. Fixed in engine 1.5.8 (`src/lexer.rs`, with a regression test and conformance case 22);
+  verified byte-identical on both planes of the published 1.5.8. This tool keeps its own output
+  strings ASCII anyway, so an older engine the launcher still accepts renders them correctly.
 
 ## Repository
 
 ```text
-tallowx.tl                the tool — one Tallow program, 696 lines
+tallowx.tl                the tool — one Tallow program, 702 lines
 tallowx                   launcher: native build if fresh and engine-matched, else tallow run
 scripts/build-native.sh   builds into build/ and records the engine that built it
 tests/smoke.sh            end-to-end checks against SRC/DST fixtures

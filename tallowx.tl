@@ -594,8 +594,8 @@ fn verify_tree(src: String, dst: String) -> Result<i64> {
 fn usage() {
     // ASCII on purpose: engine releases up to 1.5.7 decode a multi-byte literal
     // one byte at a time, so an em dash here printed as mojibake. The lexer is
-    // fixed in engine main; this line stays ASCII so a released engine renders
-    // it correctly today.
+    // fixed in 1.5.8; this line stays ASCII so an older engine, which the
+    // launcher still supports, renders it correctly.
     print("tallowx - verified copy/move for local and mounted storage")
     print("")
     print("  tallowx plan   SRC DST")
@@ -621,6 +621,12 @@ fn main() {
     let cmd = argv[0]
     if cmd == "help" || cmd == "--help" || cmd == "-h" {
         usage()
+        process.exit(0)
+    }
+    if cmd == "--version" || cmd == "-V" {
+        // One line, machine-readable: build-native.sh records this to prove
+        // which tool the binary is, not merely which engine built it.
+        print("tallowx 0.2.0")
         process.exit(0)
     }
 
