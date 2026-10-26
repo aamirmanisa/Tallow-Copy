@@ -264,9 +264,10 @@ call ~10× slower. On a mismatch the launcher prints the reason and falls back t
 
 | Gate | Result | Measured |
 |---|---|---|
-| `tallow check tallowx.tl` | check passed: 28 items, 3 warnings | 2026-10-25 · engine 1.5.7 |
+| `tallow check tallowx.tl` | check passed: 28 items, **0 warnings** | 2026-10-26 · engine `main` `62801d4` (3 warnings on 1.5.7) |
 | `tests/smoke.sh` — interpreter plane | 29 checks, 0 failed | 2026-10-25 |
 | `tests/native.sh` — compiled binary | 29 checks, 0 failed | 2026-10-25 |
+| `packaging/arch/verify-recipe.sh` | PASS — builds a 110,815,672-byte binary, assembles a 4-file package, and the installed binary copies a file from outside the tree | 2026-10-26 · engine 1.5.7 |
 
 ```console
 $ tallow check tallowx.tl
@@ -293,9 +294,11 @@ no privileged operations.
   `Result`, so a failure surfaces as a runtime error. The engine now also offers `copy.try_file`,
   which does return `Result<CopyStats>` and keeps a batch going; it does not preserve metadata,
   which is why this tool does not use it yet.
-- **Two stderr lines on every run are expected and are not errors**: a checker false positive
-  (`warning[W0102]` on `FileCopy` and `RESUME_MIN`) and the engine's plane marker (`* native build
-  unavailable …`). `2>/dev/null` silences both.
+- **On engines up to 1.5.7, three `warning[W0102]` lines are expected and are not errors**: the
+  checker reported the `FileCopy` namespace and a top-level `const` as possibly undefined. Fixed in
+  the engine's `main` (`62801d4`) — on that build `tallow check` reports 0 warnings — but a released
+  engine still prints them. The engine's plane marker (`* native build unavailable …`) appears on
+  the interpreter path and is informational; `2>/dev/null` silences both.
 - **Non-ASCII string literals were mangled by engine releases up to 1.5.7** [measured 2026-10-25 ·
   1.5.7]: the lexer decoded each UTF-8 byte as a Latin-1 character, so `—` printed as `â€"`. It is
   fixed in the engine's `main` (`src/lexer.rs`, with a regression test); until a release carries that
