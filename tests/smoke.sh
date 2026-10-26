@@ -2,7 +2,8 @@
 # smoke.sh — end-to-end checks for tallowx on a scratch tree.
 #
 # Every assertion is a real command with a real exit status; nothing is
-# "verified" by inspection. Requires `tallow` on PATH (engine 1.5.2).
+# "verified" by inspection. Requires `tallow` on PATH (any 1.5.x engine; the
+# resume cases probe for their primitives instead of trusting a version string).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
