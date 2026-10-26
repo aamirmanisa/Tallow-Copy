@@ -1,391 +1,322 @@
-# tallowx
+<div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/tallowx-hero-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/tallowx-hero-light.png">
+  <img src="assets/tallowx-hero-light.png" alt="tallowx — copy, then prove it arrived" width="100%">
+</picture>
+
+**A verified copy/move tool for local disks and mounted NAS storage, written in [Tallow](https://github.com/aamirmanisa/Tallow-Language).**
+
+<sub><a href="#quickstart">Quickstart</a> &nbsp;·&nbsp; <a href="#what-the-run-proves">What it proves</a> &nbsp;·&nbsp; <a href="#commands">Commands</a> &nbsp;·&nbsp; <a href="#benchmarks">Benchmarks</a> &nbsp;·&nbsp; <a href="#what-is-not-guaranteed">Limits</a> &nbsp;·&nbsp; <a href="#repository">Repository</a></sub>
+
+![version 0.2.0](https://img.shields.io/badge/version-0.2.0-E39B3E?style=flat-square&labelColor=171513)
+![engine 1.5.5+](https://img.shields.io/badge/engine-1.5.5%2B-E39B3E?style=flat-square&labelColor=171513)
+![licence MIT](https://img.shields.io/badge/licence-MIT-6E675D?style=flat-square&labelColor=171513)
 [![ci](https://github.com/aamirmanisa/Tallow-Copy/actions/workflows/ci.yml/badge.svg)](https://github.com/aamirmanisa/Tallow-Copy/actions/workflows/ci.yml)
 
-**A verified copy/move tool for local disks and mounted NAS storage, written in
-[Tallow](https://github.com/aamirmanisa/Tallow-Language).**
+</div>
 
-`tallowx` copies a file or a whole tree, then proves the copy by hashing the
-bytes that actually landed on disk. It reports whether mode and mtime survived,
-skips files that are already identical, and prints one machine-readable summary
-line. It runs wherever the Tallow engine runs.
+---
 
-It does **not** claim a speed win over `cp` or `rsync`. Measured here, it is at
-parity with `cp` for bulk data and slower for many small files. The reason to use
-it is the evidence it leaves behind, not the stopwatch. Numbers below.
+`tallowx` copies a file or a whole tree, then proves the copy by hashing the bytes that actually
+landed on disk. It reports whether mode and mtime survived, skips files that are already identical,
+and prints one machine-readable summary line. It runs wherever the Tallow engine runs.
+
+It does **not** claim a speed win over `cp` or `rsync`. Measured here, it is at parity with `cp` for
+bulk data and several times slower for many small files. The reason to use it is the evidence it
+leaves behind, not the stopwatch. Numbers below, including the ones that argue against it.
 
 ```console
 $ ./tallowx copy /mnt/nas/photos /mnt/backup/photos
 copy  /mnt/nas/photos/readme.txt -> /mnt/backup/photos/readme.txt
 copy  /mnt/nas/photos/2024/img_0003.jpg -> /mnt/backup/photos/2024/img_0003.jpg
-copy  /mnt/nas/photos/2024/img_0001.jpg -> /mnt/backup/photos/2024/img_0001.jpg
-copy  /mnt/nas/photos/2024/img_0002.jpg -> /mnt/backup/photos/2024/img_0002.jpg
+…
 
 copy: 4 file(s), 6600006 bytes, 22 ms
   verified: 4 | metadata preserved: 4 | skipped: 0 | failed: 0
   throughput: 286 MiB/s
 ```
 
-## Status
+## Quickstart
 
-| | |
-|---|---|
-| Version | 0.2.0 |
-| Engine | Tallow 1.5.5 or newer (both planes) |
-| Platforms | wherever `tallow` runs — measured on linux-aarch64 |
-| Tests | 28 native checks + the interpreter suite (`tests/native.sh`, `tests/smoke.sh`) |
-| Licence | MIT |
-
-## Install
-
-You need the Tallow engine (`tallow` on `PATH`) and the libraries it links
-against. On Debian/Ubuntu:
+You need the Tallow engine (`tallow` on `PATH`) and the libraries it links against.
 
 ```console
+# Debian / Ubuntu — clang is a run-time dependency, not just a build-time one
 $ sudo apt-get install -y clang liblzma-dev libbz2-dev
 $ curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh | bash
 ```
 
-On Arch/CachyOS: `sudo pacman -S clang xz bzip2`, then the same installer, then
-`cd packaging/arch && makepkg -si` for the tool itself (the PKGBUILD refuses to
-build without the engine rather than failing halfway).
-`clang` is a **run-time** dependency, not just a build-time one — the engine
-shells out to it for every program it compiles, including its own install
-probe. Without `liblzma`/`libbz2` the probe fails to link and the installer
-exits non-zero (found the hard way in this repo's CI).
-
-Then:
+On Arch/CachyOS: `sudo pacman -S clang xz bzip2`, the same installer, then `cd packaging/arch &&
+makepkg -si` for the tool itself — the PKGBUILD refuses to build without the engine rather than
+failing halfway. Without `liblzma`/`libbz2` the installer's probe fails to link and exits non-zero
+(found the hard way in this repo's CI).
 
 ```console
-$ git clone <this repo> tallowx && cd tallowx
-$ ./tallowx --help
+$ git clone https://github.com/aamirmanisa/tallow-copy tallowx && cd tallowx
+$ ./tallowx plan  SRC DST     # what would be copied; writes nothing
+$ ./tallowx copy  SRC DST     # copy, then verify by re-reading both sides
+$ ./tallowx verify SRC DST    # re-check an existing destination
 ```
 
-or run it directly:
+Or without the launcher:
 
 ```console
 $ tallow run tallowx.tl -- copy SRC DST
 ```
 
-## Usage
+## What the run proves
 
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/tallowx-verify-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/tallowx-verify-light.png">
+  <img src="assets/tallowx-verify-light.png" alt="Source, kernel copy, destination, then BLAKE3 read back from both files: match exits 0, mismatch exits 1" width="100%">
+</picture>
+
+With verification on — the default — every copied file is hashed twice from disk, source and
+destination, with BLAKE3, and compared. A mismatch fails the file and the run exits `1`. Mode bits
+and mtime are preserved by the copy primitive and counted. A file that cannot be copied fails
+loudly; the run never reports success with a missing file.
+
+## Commands
+
+```text
 tallowx plan   SRC DST                  # what would be copied; writes nothing
-tallowx copy   SRC DST [--checksum] [--resume] [--no-verify] [--json]
-tallowx move   SRC DST [--checksum] [--resume] [--no-verify] [--json]
+tallowx copy   SRC DST [--delete] [--exclude P] [--resume] [--checksum] [--no-verify] [--json]
+tallowx move   SRC DST [--resume] [--no-verify] [--json]
 tallowx verify SRC DST                  # re-check an existing destination
 ```
 
-- `--no-verify` skips the BLAKE3 read-back. It is faster and proves nothing.
-- `--checksum` hashes both sides before skipping an existing destination. Without
-  it a skip is decided on size + mtime — the same cheap test `rsync` uses — so a
-  file corrupted in place with its timestamps left intact is skipped and the run
-  reports `failed: 0`. `verify` catches that; `copy --checksum` repairs it.
-- `--json` prints a single summary object and suppresses per-file lines.
-- Exit codes: `0` ok, `1` failure or verification mismatch, `2` usage.
+| Flag | What it does | When it is the right flag |
+|---|---|---|
+| `--checksum` | hashes both sides before skipping an existing destination | when the destination may have been damaged in place without changing size or mtime |
+| `--delete` | mirrors: copies what is missing or changed, then removes what the source does not have | a backup that should converge, not accumulate |
+| `--exclude P` | with `--delete`, protects an exact path, a directory prefix, or a `*suffix` | keeping `*.tmp` or a local `cache/` out of the prune |
+| `--resume` | completes a short destination from a hash-verified prefix | a slow or flaky link with a large tail, not a local disk (measurement below) |
+| `--no-verify` | skips the BLAKE3 read-back | when you want the copy time and nothing else; it proves nothing |
+| `--json` | one summary object, per-file lines suppressed | anything that parses the result |
 
-`SRC` may be a file or a directory. `DST` may be a path on any mounted
-filesystem — ext4, XFS, btrfs, ZFS, NFS, SMB/CIFS, sshfs. Nothing in the tool
-is local-filesystem specific; it uses the kernel's copy path and the mounted
-path you give it.
+`SRC` may be a file or a directory; `DST` may be any mounted filesystem — ext4, XFS, btrfs, ZFS,
+NFS, SMB/CIFS, sshfs. Nothing in the tool is local-filesystem specific: it uses the kernel's copy
+path and the mounted path you give it.
 
-### Output
-
-Two stderr lines are expected on every run and are not errors:
-
-```
-warning[W0102]: use of possibly undefined variable `FileCopy`   ← checker false positive
-* native build unavailable … running in the interpreter          ← engine plane marker
-```
-
-The first is a type-checker false positive for a namespace that resolves at run
-time (ENGINE-FINDINGS #2-adjacent); the second is the engine stating which
-execution plane it used, which it never suppresses. Redirect stderr if you want
-clean logs: `./tallowx copy a b 2>/dev/null`.
+**Exit codes.** `0` ok · `1` failure or verification mismatch · `2` usage.
 
 ### Why there is no `--workers` flag
 
-There used to be one. It split the file list into `spawn`ed slices and was
-measured at **8.55 s against 7.63 s** for the sequential path on 4,000 files —
-slower, because the interpreter serialises evaluation and the parent spins while
-waiting on the stat files the workers write. It has been removed rather than
-shipped as a switch that implies a speedup it does not deliver: `spawn` with a
-`[]String` parameter is also interpreter-only, so the flag was the single thing
-preventing `tallowx` from compiling natively at all.
+There used to be one. It split the file list into `spawn`ed slices and measured **8.55 s against
+7.63 s** for the sequential path on 4,000 files — slower, because the interpreter serialises
+evaluation and the parent spins while waiting on the stat files the workers write. It was removed
+rather than shipped as a switch that implies a speedup it does not deliver: `spawn` with a
+`[]String` parameter is also interpreter-only, so the flag was the single thing preventing
+`tallowx` from compiling natively at all.
 
-### Benchmarks (measured, not estimated)
+## Mirroring a destination (`--delete`)
 
-Host: 8-core ARM64, ext4, 16 GB RAM, **page cache warm**; destination deleted between
-runs; round-robin, min of 3; load average 3.0–6.7 during the runs (the box was
-compiling), so treat these as an upper bound on wall time, not a lab figure.
-Every tool's output was checked byte-identical to the source (`diff -r`).
-
-4,000 files × 200 B (16 MB, 40 dirs):
-
-| tool                          | min | runs |
-|-------------------------------|-----|------|
-| tallowx (native, verify)      | 314 ms | 318, 314, 316, 325, 324 |
-| tallowx (native, --no-verify) | 259 ms | 264, 259, 269 |
-| tallowx (interpreter)         | 1,176 ms | 1,215, 1,176, 1,227 |
-| `cp -a`                       | 141 ms | 145, 144, 144 |
-
-1,000 files × 200 KB (196 MB, 10 dirs):
-
-| tool                          | min | runs |
-|-------------------------------|-----|------|
-| tallowx (native, verify)      | 684 ms | 689, 702, 684 |
-| tallowx (native, --no-verify) | 235 ms | 235, 248, 246 |
-| tallowx (interpreter)         | 876 ms | 878, 897, 876 |
-| `cp -a`                       | 195 ms | 195, 201, 196 |
-
-Reading these honestly:
-- `cp -a` does no hashing and no read-back, so the like-for-like row is
-  `--no-verify`: 259 ms vs 141 ms on 16 MB, 235 ms vs 195 ms on 196 MB.
-- Verification costs 55 ms on 16 MB and 450 ms on 196 MB (both sides read and
-  hashed, ~870 MB/s aggregate for the large set).
-- The interpreter pays per-file overhead, so it loses most on the
-  many-small-files shape (1.18 s vs 314 ms, 3.7×) and only 1.3× on the
-  large-file shape, where hashing dominates both.
-- These are cache-warm figures. A cold run of the same 196 MB tree (cache dropped
-  by a build in between) took 1,729 ms end to end at 112 MiB/s — I/O bound, not
-  CPU bound, which is what a real first transfer of that size looks like.
-- The 16 MB row is not stable: an earlier run of the same binary reported
-  92–109 ms for the same tree, a 3× spread that never reproduced. Treat ~300 ms
-  as the number and the fast outlier as dentry-cache luck.
-
-**The biggest win was not in this program.** Native binaries link the newest
-`libtallow.a` on disk; when the engine is built in debug, that archive is the
-debug runtime and every FFI call runs unoptimized. Hashing 200 MB took 3,768 ms
-(binary 518 MB) and the same verification run took 7,284 ms. Building the engine
-with `--release` first makes the archive the optimized one: hashing 436 ms,
-verified copy 702 ms, binary 110 MB. A 10.4× difference caused entirely by
-which archive the linker picked.
-
-**Engine requirement.** `--resume` needs the engine build that added
-`fs.copy_range` and `Transfer.hash_prefix` — tallowsphere 1.5.5 (first released
-tarball with them; the primitives landed in `8883409`). On an older engine the
-flag fails loudly (`undefined function: fs.copy_range`) and the test suite skips
-the resume cases with a message instead of pretending they ran. Every other path
-— plain copy, verify, move, plan — works on any 1.5.x engine.
-
-### Mirroring a destination (`--delete`)
-
-`copy --delete` makes DST match SRC: copy what is missing or changed, then remove
-what the source does not have. That is the mode a backup actually runs in — a
-copy that only ever adds turns a renamed file into two files, forever.
+`copy --delete` makes DST match SRC. That is the mode a backup actually runs in — a copy that only
+ever adds turns a renamed file into two files, forever.
 
 ```sh
 tallowx copy ~/photos /mnt/nas/photos --delete --exclude '*.tmp'
 tallowx plan ~/photos /mnt/nas/photos --delete      # shows the prunes, writes nothing
 ```
 
-Deleting is the one thing here a re-run cannot undo, so it refuses before it
-starts rather than discovering the mistake half way through:
+Deleting is the one thing here a re-run cannot undo, so it refuses before it starts rather than
+discovering the mistake half way through:
 
-- **Plan first is free.** `plan --delete` prints every `prune` line and writes
-  nothing — the same tree walk, no side effects.
-- **Identical, nested or inverted paths are refused**, as is `move --delete`
-  (which would empty the source by definition) and a single-file source.
-- **An empty source cannot empty the destination.** If SRC has no files and DST
-  has some, that is far more likely a mistyped path than an intent; it refuses
-  unless you pass `--allow-empty`.
-- **A failed copy cancels every prune in that run.** A copy failure means the run
-  is not trustworthy, and a prune is the only part of it that destroys data.
-- **Directories go only when empty.** Files are removed first; a directory is
-  deleted only after `list_dir` says it holds nothing, so a kept file's parent is
-  never taken out from under it.
+- **Plan first is free.** `plan --delete` prints every `prune` line and writes nothing — the same
+  tree walk, no side effects.
+- **Identical, nested or inverted paths are refused**, as is `move --delete` (which would empty the
+  source by definition) and a single-file source.
+- **An empty source cannot empty the destination.** If SRC has no files and DST has some, that is
+  far more likely a mistyped path than an intent; it refuses unless you pass `--allow-empty`.
+- **A failed copy cancels every prune in that run.** A prune is the only part of a run that destroys
+  data, so it does not happen on the strength of a run that already failed.
+- **Directories go only when empty.** Files are removed first; a directory is deleted only after
+  `list_dir` says it holds nothing, so a kept file's parent is never taken out from under it.
 
-`--exclude P` (repeatable) protects paths from pruning: an exact relative path, a
-directory prefix (`cache` protects `cache/…`), or a trailing `*` suffix (`*.tmp`).
-It is deliberately not a pattern language — every pattern shape here is one I can
-test exhaustively, and an untested shape in a delete path is how data goes away.
-Excluded files are also never deleted *by* a parent directory's removal, because
-the directory is only removed once empty.
+`--exclude P` (repeatable) is deliberately not a pattern language: an exact relative path, a
+directory prefix (`cache` protects `cache/…`), or a trailing `*` suffix (`*.tmp`). Every shape here
+is one the test suite can check exhaustively, and an untested shape in a delete path is how data
+goes away. Excluded files are never deleted *by* a parent directory's removal either, because the
+directory is only removed once empty.
 
-### Resuming an interrupted copy (`--resume`)
+## Resuming an interrupted copy (`--resume`)
 
-A transfer that dies half way leaves a short destination. With `--resume`, a file
-of 8 MiB or more is completed rather than restarted: the bytes already present are
-hashed (`Transfer.hash_prefix`) and compared with the source's first N bytes, and
-only if they match is the remainder appended (`fs.copy_range`). A destination that
-is not a provable prefix — stale, torn, or from a different source — is deleted
-and copied whole. The tool never appends to bytes it could not prove, because size
-alone cannot tell "half this file" from "the wrong half of another one".
+A transfer that dies half way leaves a short destination. With `--resume`, a file of 8 MiB or more
+is completed rather than restarted: the bytes already present are hashed (`Transfer.hash_prefix`)
+and compared with the source's first N bytes, and only if they match is the remainder appended
+(`fs.copy_range`). A destination that is not a provable prefix — stale, torn, or from a different
+source — is deleted and copied whole. The tool never appends to bytes it could not prove, because
+size alone cannot tell "half this file" from "the wrong half of another one".
 
-**Measured, on this box, and it argues against the default:**
+**Measured on a 256 MiB file, 90% already present, native binary, 3 runs each:**
 
-- 256 MiB file, 90% already present, native binary, 3 runs each
-- `copy` (verify): **994–998 ms** · `copy --resume` (verify): **1284–1434 ms**
-- `copy --no-verify`: **223–226 ms** · `copy --resume --no-verify`: **527–535 ms**
+| | with verification | without |
+|---|---|---|
+| `copy` | 994–998 ms | 223–226 ms |
+| `copy --resume` | 1284–1434 ms | 527–535 ms |
 
-Resume is *slower* on local storage in every configuration — 30% slower with
-verification, 2.3× slower without. Proving the prefix costs two full-length reads
-(source and destination, hashed), while re-copying costs one kernel copy of the
-whole file. There is nothing to win: the check reads more than the copy writes.
+Resume is *slower* on local storage in every configuration — 30% with verification, 2.3× without.
+Proving the prefix costs two full-length reads (source and destination, hashed), while re-copying
+costs one kernel copy of the whole file: the check reads more than the copy writes.
 
-So it is opt-in, and the honest recommendation is: leave it off for local disks
-and local trees. It can only pay when the destination is on a slow or flaky link
-*and* the tail is large — an upload to a NAS over a congested link, where
-re-sending 256 MiB costs minutes and re-reading 90% costs less. Measure your case
-before trusting it.
+So it is opt-in, and the honest recommendation is to leave it off for local disks. It can only pay
+when the destination is on a slow or flaky link *and* the tail is large — an upload to a NAS over a
+congested link, where re-sending 256 MiB costs minutes and re-reading 90% costs less. Measure your
+case before trusting it.
 
-`copy_range` carries the source's mtime, so a resumed file is indistinguishable
-from a whole-file copy on the next run and is skipped rather than re-copied. The
-summary prints `resumed: N` when the path was used; the JSON carries
-`"resumed": N`.
+`copy_range` carries the source's mtime, so a resumed file is indistinguishable from a whole-file
+copy on the next run and is skipped rather than re-copied. The summary prints `resumed: N` when the
+path was used; the JSON carries `"resumed": N`.
 
-### Native plane
-
-The same source compiles to a native binary and runs on the interpreter. The
-engine that first built it natively still printed `1.5.2` while carrying the nine
-codegen fixes listed in `docs/ENGINE-FINDINGS.md` — which is why the suites probe
-capability by execution instead of trusting the version string. Releases from
-1.5.5 onward state the version correctly, and 1.5.7 keeps the payload kind
-through `?`.
-
-`tests/native.sh` builds the program with whatever engine `TALLOW` points at and
-runs the same fixture suite against the executable (12/12), and skips cleanly if
-an engine cannot lower it. Build into a scratch directory: `tallow build` writes
-the binary beside the source, so building `tallowx.tl` in the repo root would
-overwrite the `./tallowx` launcher with a ~110 MB ELF.
-
-The launcher picks the plane:
-
-```
-./tallowx …                        # native if build/tallowx is newer than tallowx.tl, else interpreter
-TALLOWX_PLANE=native ./tallowx …   # refuse to run on the interpreter
-TALLOWX_PLANE=interpret ./tallowx …# force the interpreter
-```
-
-A build is deliberately not checked in: it is ~110 MB, platform-specific, and
-only valid for the source and engine that produced it, so the launcher compares
-mtime and falls back rather than running a stale binary.
-
-Never benchmark through `tallow run`: it compiles first, so the number you get is
-clang's.
-
-### What is guaranteed
-
-- **Integrity.** With verification on (the default), every copied file is
-  hashed twice from disk — source and destination — with BLAKE3 and compared.
-  A mismatch fails the file and the run exits `1`.
-- **Metadata.** Mode bits and mtime are preserved by the copy primitive and
-  counted; the summary reports how many files kept them.
-- **No silent short writes.** A file that cannot be copied fails loudly; the
-  run does not report success with a missing file.
-
-### What is not guaranteed
-
-- **Symlinks are dereferenced, not preserved.** A link becomes a copy of its
-  target. Dangling links are reported and skipped.
-- **Ownership (uid/gid) and xattrs/ACLs are not preserved.** The run is done as
-  the invoking user; `--preserve=all` semantics are out of scope for 0.1.
-- **A skip is size + mtime, not proof of sameness.** Skipping is what makes the
-  second run of a large tree cheap, and it will also skip a destination that was
-  damaged after being written if the damage preserved size and mtime. `--checksum`
-  turns every skip into a two-hash comparison (twice the reads, still no writes);
-  `verify` is the full-tree check. The default is the fast guess, deliberately.
-- **Resume is opt-in by size, and only for provable prefixes.** A file of 8 MiB
-  or more whose destination exists but is short is resumed only when the bytes
-  already present hash identically to the source's first N bytes; anything else
-  is replaced and copied whole. Below 8 MiB the prefix check costs more than a
-  fresh copy, so it is skipped. A resumed file is still verified end to end.
-- **A hard I/O error aborts the run.** `FileCopy.copy_metadata` (the primitive
-  used here, because it preserves mode and mtime) returns a value rather than a
-  `Result`, so a failure surfaces as a runtime error. The engine now also offers
-  `copy.try_file`, which does return `Result<CopyStats>` and keeps a batch going
-  — it does not preserve metadata, which is why this tool does not use it yet.
+`--resume` requires an engine with `fs.copy_range` and `Transfer.hash_prefix` — tallowsphere 1.5.5,
+the first released tarball with them (the primitives landed in `8883409`). On an older engine the
+flag fails loudly (`undefined function: fs.copy_range`) and the suite skips the resume cases with a
+message instead of pretending they ran. Every other path — copy, verify, move, plan — works on any
+1.5.x engine.
 
 ## Benchmarks
 
-Median of 3 runs per tool, same machine, destination removed between runs,
-integrity checked after the last run. Engine `tallow 1.5.2`, linux-aarch64,
-ext4. Raw data in [`bench/results.json`](bench/results.json);
-reproduce with `python3 bench/bench.py`.
+Two datasets, two planes, one machine. Median of 3 runs per tool, destination removed between runs,
+every output checked byte-identical to the source. Raw numbers in
+[`bench/results.json`](bench/results.json); reproduce with `python3 bench/bench.py`.
 
-These numbers were measured on the **interpreter plane**, before the native
-plane existed. The tool now compiles ahead of time on 1.5.5+, which is faster
-than these figures; the native plane has not been benchmarked yet, so no speedup
-is claimed for it here.
+Host: 8-core ARM64, ext4, 16 GB RAM, page cache warm, load average 3.0–6.7 during the runs (the box
+was compiling), so treat these as an upper bound on wall time rather than a lab figure.
 
-**A — one 256 MiB file**
+**A — 4,000 files × 200 B (16 MB, 40 dirs)**
 
-| Tool | Median | vs `cp` |
+| Tool | Min | Runs |
 |---|---|---|
-| `cp -a` | 168.0 ms | 1.00× |
-| `rsync -a` | 507.7 ms | 3.02× slower |
-| `tallowx` (verify) | 721.7 ms | 4.30× slower |
-| `tallowx --no-verify` | 179.4 ms | 1.07× slower |
+| `tallowx` native, verify | 314 ms | 318, 314, 316, 325, 324 |
+| `tallowx` native, `--no-verify` | 259 ms | 264, 259, 269 |
+| `tallowx` interpreter | 1,176 ms | 1,215, 1,176, 1,227 |
+| `cp -a` | 141 ms | 145, 144, 144 |
 
-**B — 2,000 files in 40 directories**
+**B — 1,000 files × 200 KB (196 MB, 10 dirs)**
 
-| Tool | Median | Notes |
+| Tool | Min | Runs |
 |---|---|---|
-| `cp -a` | 76.8 ms | |
-| `rsync -a` | 167.8 ms | |
-| `tallowx` (verify) | 594.8 ms | includes ~286 ms interpreter startup |
-| `tallowx --no-verify` | 529.4 ms | ~245 ms of work |
+| `tallowx` native, verify | 684 ms | 689, 702, 684 |
+| `tallowx` native, `--no-verify` | 235 ms | 235, 248, 246 |
+| `tallowx` interpreter | 876 ms | 878, 897, 876 |
+| `cp -a` | 195 ms | 195, 201, 196 |
 
-Reading these numbers:
+An earlier harness run on the interpreter-only engine (1.5.2) put `rsync -a` 3.02× behind `cp` on a
+single 256 MiB file, and `tallowx` 4.30× behind it with verification, 1.07× behind without. Those
+rows stay in `bench/results.json` rather than in a second table here.
 
-- Bulk copy is **at parity with `cp`** because both end up in the kernel's copy
-  path (`copy_file_range` / sendfile through `std::fs::copy`). There is no
-  userspace fast path to win here.
-- Verification costs roughly **3–4× the copy time on a large file** — it is
-  three reads and one write instead of one read and one write.
-- Many small files are dominated by **~286 ms of engine start-up** (the
-  `tallow run` front end; `--interpret` skips to ~29 ms and a native binary
-  starts in ~4 ms — measured on a trivial program) plus a per-file interpreter
-  dispatch. `tallowx` is ~7–8× slower than `cp` on that
-  shape. If you copy thousands of tiny files and do not need verification, use
-  `cp -a`.
-- A 10,000-file tree (100 dirs, 512 B each) copied and diffed identical in
-  1.6 s of tool time / 5.5 s wall, peak RSS 30 MB.
-- Run-to-run variance on this host was 168–230 ms for `cp -a` on dataset A
-  while page cache warmed; treat single-digit percentages as noise.
+Reading them honestly:
 
-## Why the native plane exists now
+- **`cp -a` is the like-for-like row for `--no-verify`** — neither hashes anything: 259 vs 141 ms on
+  16 MB, 235 vs 195 ms on 196 MB.
+- **Verification costs 55 ms on 16 MB and 450 ms on 196 MB** (both sides read and hashed, ~870 MB/s
+  aggregate on the large set).
+- **Bulk copy is at parity with `cp`** because both end up in the kernel's copy path
+  (`copy_file_range` / sendfile). There is no userspace fast path to win here.
+- **The interpreter loses most on many small files** (1.18 s vs 314 ms, 3.7×) and only 1.3× on the
+  large-file shape, where hashing dominates both.
+- A cold run of the same 196 MB tree took 1,729 ms end to end at 112 MiB/s — I/O bound, which is
+  what a real first transfer of that size looks like.
+- **The 16 MB row is not stable.** An earlier run of the same binary reported 92–109 ms for the same
+  tree, a 3× spread that never reproduced; treat ~300 ms as the number and the fast outlier as
+  dentry-cache luck.
+- **The biggest win was not in this program.** Native binaries link the newest `libtallow.a` on
+  disk; when the engine is built in debug, that archive is the debug runtime and every FFI call runs
+  unoptimized. Hashing 200 MB took 3,768 ms that way and 436 ms against a release engine — a 10.4×
+  difference caused entirely by which archive the linker picked. Build the engine with `--release`
+  first.
 
-The tool was interpreter-only for its first life: engine 1.5.2 could not lower
-the primitives it needs (`FileCopy.copy_metadata`, `fs.stat`, `fs.list_dir`,
-`fs.delete`, `time.monotonic`), so every build attempt failed with
-`native backend has no lowering for method …` and the program silently ran on
-the interpreter.
+Never benchmark through `tallow run`: it compiles first, so the number you get is clang's.
 
-That is fixed. The engine wave on 2026-10-25 corrected nine codegen defects and
-the build ships as an installed build (`docs/ENGINE-FINDINGS.md` has each defect
-with its reproduction), so `./tallowx` now prefers a native binary built from the
-current source. The interpreter remains the fallback for a fresh clone, and
-`TALLOWX_PLANE=interpret` forces it.
+## Two planes
 
-The numbers below were measured on both planes; see the table for which is
-which.
+The same source compiles to a native binary and runs on the interpreter. The engine that first built
+it natively still printed `1.5.2` while carrying the nine codegen fixes in
+[`docs/ENGINE-FINDINGS.md`](docs/ENGINE-FINDINGS.md) — which is why the suites probe capability by
+execution instead of trusting a version string. Releases from 1.5.5 onward state the version
+correctly, and 1.5.7 keeps the payload kind through `?`.
+
+```text
+./tallowx …                         # native if build/tallowx is newer than tallowx.tl, else interpreter
+TALLOWX_PLANE=native ./tallowx …    # refuse to run on the interpreter
+TALLOWX_PLANE=interpret ./tallowx … # force the interpreter
+```
+
+A build is deliberately not checked in: it is ~110 MB, platform-specific, and only valid for the
+source and engine that produced it, so the launcher compares mtime rather than running a stale
+binary. Build into a scratch directory — `tallow build` writes the binary beside the source, and
+building `tallowx.tl` in the repo root would overwrite the launcher with a ~110 MB ELF.
+
+## Verification
+
+| Gate | Result | Measured |
+|---|---|---|
+| `tallow check tallowx.tl` | check passed: 29 items, 3 warnings | 2026-10-25 · engine 1.5.7 |
+| `tests/smoke.sh` — interpreter plane | 29 checks, 0 failed | 2026-10-25 |
+| `tests/native.sh` — compiled binary | 29 checks, 0 failed | 2026-10-25 |
+
+```console
+$ tallow check tallowx.tl
+$ TALLOW=$(command -v tallow) ./tests/smoke.sh    # fixtures, both planes' behaviour
+$ TALLOW=$(command -v tallow) ./tests/native.sh   # builds, then the same suite
+```
+
+`tests/native.sh` skips cleanly when the engine cannot lower the program, and says so rather than
+counting a skip as a pass. Both scripts build their own fixtures under a temp directory: no network,
+no privileged operations.
+
+## What is not guaranteed
+
+- **Symlinks are dereferenced, not preserved.** A link becomes a copy of its target; dangling links
+  are reported and skipped.
+- **Ownership (uid/gid) and xattrs/ACLs are not preserved.** The run is done as the invoking user;
+  `--preserve=all` semantics are out of scope.
+- **A skip is size + mtime, not proof of sameness.** That is what makes a second run of a large tree
+  cheap, and it will also skip a destination damaged in place if the damage preserved size and
+  mtime. `--checksum` turns every skip into a two-hash comparison (twice the reads, still no
+  writes); `verify` is the full-tree check. The default is the fast guess, deliberately.
+- **Resume is opt-in by size, and only for provable prefixes**, as measured above.
+- **A hard I/O error aborts the run.** `FileCopy.copy_metadata` returns a value rather than a
+  `Result`, so a failure surfaces as a runtime error. The engine now also offers `copy.try_file`,
+  which does return `Result<CopyStats>` and keeps a batch going; it does not preserve metadata,
+  which is why this tool does not use it yet.
+- **Two stderr lines on every run are expected and are not errors**: a checker false positive
+  (`warning[W0102]` on `FileCopy` and `RESUME_MIN`) and the engine's plane marker (`* native build
+  unavailable …`). `2>/dev/null` silences both.
+- **Non-ASCII string literals are mangled by the current engine** [measured 2026-10-25 · 1.5.7]:
+  `--help` prints `â` where the source has an em dash. Output is ASCII-only until that is fixed.
 
 ## Repository
 
+```text
+tallowx.tl                the tool — one Tallow program, 714 lines
+tallowx                   launcher: native build if fresh, else tallow run
+tests/smoke.sh            end-to-end checks against SRC/DST fixtures
+tests/native.sh           the same fixture suite against a compiled binary
+bench/bench.py            benchmark harness → bench/results.json
+packaging/arch/           PKGBUILD, and a verifier for boxes without makepkg
+docs/DESIGN.md            architecture and decisions
+docs/ENGINE-FINDINGS.md   engine defects and gaps found while building this
+docs/PRIOR-ART.md         what other transfer tools do, and what was not researched
+docs/OPTIMIZATION-REPORT.md  measured analysis, prioritised engine work, gates
+assets/                   hero and verification diagrams (SVG sources + PNGs)
 ```
-tallowx.tl          the tool — one Tallow program, ~380 lines
-tallowx             launcher (native build if fresh, else tallow run)
-tests/smoke.sh      12 end-to-end checks
-bench/bench.py      benchmark harness → bench/results.json
-docs/DESIGN.md      architecture and decisions
-docs/ENGINE-FINDINGS.md  engine defects and gaps found while building this
-docs/PRIOR-ART.md   what other transfer tools do, and what was deliberately not researched
-docs/OPTIMIZATION-REPORT.md  measured analysis, prioritised engine work, verification gates
-```
+
+[`docs/README.md`](docs/README.md) indexes those four documents.
 
 ## Prior art and scope
 
-`tallowx` sits next to tools that already solve parts of this problem:
-`cp --reflink`, `rsync`, `rclone`, `bbcp`, `fpart`/`GNU parallel`, `tar`+pipe,
-and the content-addressed end of the field (`magic-wormhole`, `croc`,
-`Syncthing`, `NNCP`). [`docs/PRIOR-ART.md`](docs/PRIOR-ART.md) records what each
-one is good at and what was taken from it.
+`tallowx` sits next to tools that already solve parts of this problem: `cp --reflink`, `rsync`,
+`rclone`, `bbcp`, `fpart`/`GNU parallel`, `tar`+pipe, and the content-addressed end of the field
+(`magic-wormhole`, `croc`, `Syncthing`, `NNCP`). [`docs/PRIOR-ART.md`](docs/PRIOR-ART.md) records
+what each one is good at and what was taken from it.
 
-This project did **not** research intrusion techniques, exfiltration tradecraft,
-or material from closed criminal forums. The requirement that motivated it is
-plain: move bytes to a NAS and be able to prove afterwards that the bytes
-arrived unchanged.
+This project did **not** research intrusion techniques, exfiltration tradecraft, or material from
+closed criminal forums. The requirement that motivated it is plain: move bytes to a NAS and be able
+to prove afterwards that the bytes arrived unchanged.
 
 ## Licence
 
