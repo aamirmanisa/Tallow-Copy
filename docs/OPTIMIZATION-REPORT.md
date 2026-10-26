@@ -333,7 +333,7 @@ $ for i in 1 2 3 4 5; do …; done   # min + median of 5, round-robin between to
 **G1 — Integrity, positive and negative**
 
 ```console
-$ ./tests/smoke.sh                                  # 12/12, includes: corrupt 1 byte → verify exits 1
+$ ./tests/smoke.sh                                  # 29 checks (was 12 when written), includes: corrupt 1 byte -> verify exits 1
 $ python3 - <<'PY'                                  # truncate a destination and require detection
 # extend smoke.sh: truncate dst by 1 byte, `tallowx verify` must exit 1
 PY

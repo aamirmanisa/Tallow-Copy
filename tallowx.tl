@@ -34,28 +34,6 @@ fn has_flag(args: []String, name: String) -> bool {
 }
 
 /// Positional arguments, in order, with flags (`-…`) dropped.
-/// Read `--flag N` (or `--flag=N`) as an integer, clamped to a sane range.
-fn int_flag(args: []String, name: String, fallback: i64) -> i64 {
-    var i = 0
-    while i < args.len() {
-        let a = args[i]
-        if a == name && i + 1 < args.len() {
-            let v = args[i + 1].to_int()
-            if v < 1 { return 1 }
-            if v > 32 { return 32 }
-            return v
-        }
-        if a.starts_with(name + "=") {
-            let v = a.split("=")[1].to_int()
-            if v < 1 { return 1 }
-            if v > 32 { return 32 }
-            return v
-        }
-        i = i + 1
-    }
-    fallback
-}
-
 fn positional(args: []String) -> []String {
     var out: []String = []
     var skip_next = false
@@ -614,7 +592,11 @@ fn verify_tree(src: String, dst: String) -> Result<i64> {
 }
 
 fn usage() {
-    print("tallowx — verified copy/move for local and mounted storage")
+    // ASCII on purpose: engine releases up to 1.5.7 decode a multi-byte literal
+    // one byte at a time, so an em dash here printed as mojibake. The lexer is
+    // fixed in engine main; this line stays ASCII so a released engine renders
+    // it correctly today.
+    print("tallowx - verified copy/move for local and mounted storage")
     print("")
     print("  tallowx plan   SRC DST")
     print("  tallowx copy   SRC DST [--delete] [--exclude P] [--resume] [--checksum] [--no-verify] [--json]")

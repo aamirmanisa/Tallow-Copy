@@ -16,16 +16,36 @@ TL="$HERE/tallowx.tl"
 NATIVE="$HERE/build/tallowx"
 ENGINE="${TALLOW:-tallow}"
 PLANE="${TALLOWX_PLANE:-auto}"
+STALE_REASON=""
 
+# A native binary is only valid for the source AND the engine that produced it:
+# the engine version is part of the binary's semantics (a debug-built engine
+# links an unoptimised archive and makes every FFI call ~10x slower). If a build
+# recorded the engine it used and that engine is gone, fall back rather than
+# silently running a binary nobody can reason about.
 native_ready() {
-    [ -x "$NATIVE" ] && [ "$NATIVE" -nt "$TL" ]
+    [ -x "$NATIVE" ] && [ "$NATIVE" -nt "$TL" ] || return 1
+    local stamp="$HERE/build/engine-version" want have
+    if [ -f "$stamp" ]; then
+        want="$(cat "$stamp")"
+        have="$("$ENGINE" --version 2>/dev/null | head -1)"
+        if [ "$want" != "$have" ]; then
+            STALE_REASON="built with '$want', engine is '${have:-unavailable}'"
+            return 1
+        fi
+    fi
+    return 0
 }
 
 case "$PLANE" in
     native)
         if ! native_ready; then
-            echo "tallowx: TALLOWX_PLANE=native but $NATIVE is missing or older than tallowx.tl" >&2
-            echo "tallowx: build it with: cd $HERE/build && cp ../tallowx.tl . && $ENGINE build tallowx.tl --release" >&2
+            if [ -n "$STALE_REASON" ]; then
+                echo "tallowx: native build is stale: $STALE_REASON" >&2
+            else
+                echo "tallowx: TALLOWX_PLANE=native but $NATIVE is missing or older than tallowx.tl" >&2
+            fi
+            echo "tallowx: rebuild with: $HERE/scripts/build-native.sh" >&2
             exit 2
         fi
         exec "$NATIVE" "$@"
@@ -35,6 +55,9 @@ case "$PLANE" in
         ;;
     auto|"")
         if native_ready; then exec "$NATIVE" "$@"; fi
+        if [ -n "$STALE_REASON" ]; then
+            echo "tallowx: ignoring a stale native build ($STALE_REASON); using the interpreter" >&2
+        fi
         exec "$ENGINE" run "$TL" -- "$@"
         ;;
     *)

@@ -245,16 +245,26 @@ TALLOWX_PLANE=native ./tallowx …    # refuse to run on the interpreter
 TALLOWX_PLANE=interpret ./tallowx … # force the interpreter
 ```
 
-A build is deliberately not checked in: it is ~110 MB, platform-specific, and only valid for the
-source and engine that produced it, so the launcher compares mtime rather than running a stale
-binary. Build into a scratch directory — `tallow build` writes the binary beside the source, and
-building `tallowx.tl` in the repo root would overwrite the launcher with a ~110 MB ELF.
+Build it with the script, which writes into `build/` — `tallow build` puts the binary beside its
+source, and building `tallowx.tl` in the repo root would overwrite the launcher with a ~110 MB ELF:
+
+```console
+$ ./scripts/build-native.sh
+build-native: tallow 1.5.7 -> build/tallowx
+build-native: ok — tallowx 0.2.0
+```
+
+The script records the engine version in `build/engine-version`, and the launcher compares it on
+every run. A binary built by an engine that is no longer installed is not run: the engine is part of
+the binary's semantics, and a debug-built engine links an unoptimised archive that makes every FFI
+call ~10× slower. On a mismatch the launcher prints the reason and falls back to the interpreter;
+`TALLOWX_PLANE=native` turns that into a refusal.
 
 ## Verification
 
 | Gate | Result | Measured |
 |---|---|---|
-| `tallow check tallowx.tl` | check passed: 29 items, 3 warnings | 2026-10-25 · engine 1.5.7 |
+| `tallow check tallowx.tl` | check passed: 28 items, 3 warnings | 2026-10-25 · engine 1.5.7 |
 | `tests/smoke.sh` — interpreter plane | 29 checks, 0 failed | 2026-10-25 |
 | `tests/native.sh` — compiled binary | 29 checks, 0 failed | 2026-10-25 |
 
@@ -286,14 +296,17 @@ no privileged operations.
 - **Two stderr lines on every run are expected and are not errors**: a checker false positive
   (`warning[W0102]` on `FileCopy` and `RESUME_MIN`) and the engine's plane marker (`* native build
   unavailable …`). `2>/dev/null` silences both.
-- **Non-ASCII string literals are mangled by the current engine** [measured 2026-10-25 · 1.5.7]:
-  `--help` prints `â` where the source has an em dash. Output is ASCII-only until that is fixed.
+- **Non-ASCII string literals were mangled by engine releases up to 1.5.7** [measured 2026-10-25 ·
+  1.5.7]: the lexer decoded each UTF-8 byte as a Latin-1 character, so `—` printed as `â€"`. It is
+  fixed in the engine's `main` (`src/lexer.rs`, with a regression test); until a release carries that
+  fix, this tool keeps its own output strings ASCII so a released engine renders them correctly.
 
 ## Repository
 
 ```text
-tallowx.tl                the tool — one Tallow program, 714 lines
-tallowx                   launcher: native build if fresh, else tallow run
+tallowx.tl                the tool — one Tallow program, 696 lines
+tallowx                   launcher: native build if fresh and engine-matched, else tallow run
+scripts/build-native.sh   builds into build/ and records the engine that built it
 tests/smoke.sh            end-to-end checks against SRC/DST fixtures
 tests/native.sh           the same fixture suite against a compiled binary
 bench/bench.py            benchmark harness → bench/results.json

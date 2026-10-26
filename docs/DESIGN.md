@@ -2,8 +2,8 @@
 
 ## Shape
 
-One Tallow program (`tallowx.tl`) plus a three-line launcher. No dependencies,
-no build step, no state on disk.
+One Tallow program (`tallowx.tl`) plus a small bash launcher that chooses the
+plane. No dependencies, no build step required, no state on disk.
 
 ```
 argv ──▶ parse (flags, positional)
@@ -81,7 +81,9 @@ Three language-surface quirks shaped the source:
 - `\"` and `\xHH` are rejected by the lexer despite the spec (ENGINE-FINDINGS
   #5) → JSON is emitted from single-quoted literal fragments.
 - Non-ASCII in string literals is mangled (ENGINE-FINDINGS #6) → all literals
-  are ASCII; `|` instead of `·` in summaries.
+  are ASCII; `|` instead of `·` in summaries. The lexer defect is fixed in
+  engine `main`; the tool stays ASCII until a release carries it, so it renders
+  correctly on every engine a user may have.
 - Tuple field access does not parse (ENGINE-FINDINGS #7) → named structs.
 
 ## Failure behaviour

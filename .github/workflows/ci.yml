@@ -56,3 +56,31 @@ jobs:
 
       - name: End-to-end smoke tests
         run: ./tests/smoke.sh
+
+  native:
+    # The tool ships two planes, and until this job existed CI only exercised
+    # one: a codegen regression could pass every gate above and still break the
+    # binary users are told to prefer. This builds it and runs the same fixtures
+    # against the executable.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Engine build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang liblzma-dev libbz2-dev
+
+      - name: Install the Tallow engine
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh \
+            | bash -s -- --prefix "$HOME/.local"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Engine version
+        run: tallow --version
+
+      - name: Build the native binary and run the suite against it
+        env:
+          TALLOW: tallow
+        run: ./tests/native.sh
