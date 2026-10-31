@@ -7,9 +7,14 @@ it is not packaged anywhere. That is a precondition, not an omission.
 ## Build
 
 ```sh
-# 1. the engine (once) — it installs `tallow` plus the `libtallow.a` beside it
+# 1. the engine (once) — it installs `tallow` plus the `libtallow.a` beside it.
+#    Do not pipe a script from a branch into a shell: fetch a tagged release,
+#    verify its published checksum, then run what you verified.
 sudo -S -p '' pacman -S --needed base-devel clang xz bzip2
-curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh | bash
+ver=1.6.0
+curl -fsSLO "https://github.com/aamirmanisa/tallowsphere/releases/download/v${ver}/install.sh"
+curl -fsSLO "https://github.com/aamirmanisa/tallowsphere/releases/download/v${ver}/install.sh.sha256"
+sha256sum -c "install.sh.sha256" && bash install.sh
 
 # 2. the package
 cd packaging/arch
