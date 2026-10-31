@@ -1,86 +1,160 @@
 name: ci
 
+# This repository is packaging + assets only: the implementation (tallowx.tl)
+# is built by the Tallow engine, and the engine is a PRIVATE repository
+# (aamirmanisa/tallowsphere). The previous version fetched the engine installer
+# from `raw.githubusercontent.com/.../main/install.sh` and piped it to bash.
+# Measured 2026-10-31: that URL returns HTTP 404 for a private repository, so
+# BOTH jobs failed before running a single test, and even had it resolved it
+# would have installed an unpinned "latest" engine.
+#
+# The fix: acquire the engine by building a PINNED COMMIT with a read-scoped
+# token, once, and share the result. The engine commit is a variable, not
+# "latest": a green run now identifies exactly which engine produced it.
+
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  TALLOW_ENGINE_REPO: aamirmanisa/tallowsphere
+  # The 1.6.0 release commit. Bump deliberately, in the same change that
+  # re-measures the tool against it.
+  TALLOW_ENGINE_SHA: 965a4bae9df3da5b2758535989b64c13576e39af
+  TALLOW_ENGINE_VERSION: "1.6.0"
+
 jobs:
+  build-engine:
+    name: Build the pinned engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: secrets.ENGINE_REPO_TOKEN is required (tallowsphere is private)
+        env:
+          ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN }}
+        run: |
+          if [ -z "$ENGINE_REPO_TOKEN" ]; then
+            echo "::error::secrets.ENGINE_REPO_TOKEN is unset. tallowsphere is private; the engine cannot be fetched or built without it."
+            exit 1
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ${{ env.TALLOW_ENGINE_REPO }}
+          ref: ${{ env.TALLOW_ENGINE_SHA }}
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
+          path: engine
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+
+      - name: Engine build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang liblzma-dev libbz2-dev
+
+      - name: Build the engine (binary + runtime archive)
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --bin tallow
+          cargo build --locked --release --lib
+
+      - name: Package the engine pair for the other jobs
+        run: |
+          set -euo pipefail
+          tar czf engine.tar.gz -C engine/target/release tallow libtallow.a
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: engine-bin
+          path: engine.tar.gz
+          retention-days: 3
+
   test:
+    name: Interpreter plane (smoke)
+    needs: build-engine
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-
-      # The engine links against lzma and bz2 when it compiles its install
-      # probe, and shells out to clang for every program it builds.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-bin
+      - name: Install the pinned engine
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          tar xzf engine.tar.gz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Engine version is the pinned one
+        run: |
+          set -euo pipefail
+          got="$(tallow --version | head -1)"
+          echo "$got"
+          case "$got" in
+            *"$TALLOW_ENGINE_VERSION"*) echo "engine $TALLOW_ENGINE_VERSION confirmed" ;;
+            *) echo "::error::expected engine $TALLOW_ENGINE_VERSION, got: $got"; exit 1 ;;
+          esac
       - name: Engine build dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang liblzma-dev libbz2-dev
-
-      # The engine ships prebuilt tarballs per target; the installer verifies
-      # the checksum and compiles a probe program before reporting success.
-      - name: Install the Tallow engine
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh \
-            | bash -s -- --prefix "$HOME/.local"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Engine version
-        run: tallow --version
-
-      # The tool's core paths run on any 1.5.x engine; --resume needs the build
-      # that added fs.copy_range and Transfer.hash_prefix. Assert it here so a
-      # release that loses the primitives fails CI loudly, instead of the test
-      # suite quietly skipping the resume cases (see the probe in tests/).
-      - name: Engine has the resume primitives
-        run: |
-          cat > /tmp/resume-probe.tl <<'TL'
-          fn main() {
-              fs.write_file("/tmp/probe.src", "0123456789abcdef")?
-              fs.copy_range("/tmp/probe.src", "/tmp/probe.dst", 8, 8)
-              let h = Transfer.hash_prefix("/tmp/probe.src", 4)
-              print("ok " + h.len().to_string())
-          }
-          TL
-          out=$(tallow run /tmp/resume-probe.tl --interpret)
-          echo "$out"
-          case "$out" in
-            *"ok 64"*) echo "resume primitives present" ;;
-            *) echo "::error::engine lacks fs.copy_range / Transfer.hash_prefix — --resume cannot work"; exit 1 ;;
-          esac
-
       - name: Type-check the tool
         run: tallow check tallowx.tl
-
       - name: End-to-end smoke tests
         run: ./tests/smoke.sh
 
   native:
-    # The tool ships two planes, and until this job existed CI only exercised
-    # one: a codegen regression could pass every gate above and still break the
-    # binary users are told to prefer. This builds it and runs the same fixtures
-    # against the executable.
+    name: Native plane
+    needs: build-engine
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-bin
+      - name: Install the pinned engine
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          tar xzf engine.tar.gz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Engine build dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang liblzma-dev libbz2-dev
-
-      - name: Install the Tallow engine
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh \
-            | bash -s -- --prefix "$HOME/.local"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Engine version
-        run: tallow --version
-
       - name: Build the native binary and run the suite against it
         env:
           TALLOW: tallow
         run: ./tests/native.sh
+
+  packaging:
+    name: Arch recipe
+    # packaging/arch/verify-recipe.sh existed but no workflow ever ran it, so the
+    # recipe this repository ships was untested. It builds the tool from the
+    # recipe's own steps and runs the installed binary outside the source tree.
+    needs: build-engine
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-bin
+      - name: Install the pinned engine
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          tar xzf engine.tar.gz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Engine build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang liblzma-dev libbz2-dev
+      - name: Verify the recipe end to end
+        run: ./packaging/arch/verify-recipe.sh

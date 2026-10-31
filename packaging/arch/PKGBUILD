@@ -27,7 +27,12 @@ prepare() {
   cd "$pkgname-$pkgver"
   if ! command -v tallow >/dev/null 2>&1; then
     echo "ERROR: the Tallow engine is not on PATH." >&2
-    echo "Install it first: curl -fsSL https://raw.githubusercontent.com/aamirmanisa/tallowsphere/main/install.sh | bash" >&2
+    echo "The engine lives in the PRIVATE repository aamirmanisa/tallowsphere;" >&2
+    echo "an anonymous raw.githubusercontent.com fetch returns 404." >&2
+    echo "Build it from a pinned commit with an authenticated clone, then:" >&2
+    echo "  cd tallowsphere && cargo build --locked --release --bin tallow --lib" >&2
+    echo "  install -m755 target/release/tallow /usr/local/bin/tallow" >&2
+    echo "  install -m644 target/release/libtallow.a /usr/local/bin/libtallow.a" >&2
     exit 1
   fi
   if ! command -v clang >/dev/null 2>&1; then
