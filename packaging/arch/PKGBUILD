@@ -20,11 +20,15 @@ depends=('clang' 'xz' 'bzip2')
 makedepends=('clang')
 # Deliberately not listed in depends: the engine has no package. This is a
 # documented precondition, checked in prepare().
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')   # replace with `updpkgsums` output once the tag exists
+# The repository carries no release tag yet, so this fetches a pinned commit
+# tarball rather than a tag that returns 404. Replace $_commit and the checksum
+# together when a v$pkgver tag is cut — `updpkgsums` will do it in one step.
+_commit=2e484237f80aa175d0f53e2f7f1a0b97c98e3044
+source=("$pkgname-$pkgver.tar.gz::$url/archive/$_commit.tar.gz")
+sha256sums=('e68b42fd9ec91237c8164b69b9f535a354352eacd1ca19ce6a6d2417e324b209')
 
 prepare() {
-  cd "$pkgname-$pkgver"
+  cd "Tallow-Copy-$_commit"
   if ! command -v tallow >/dev/null 2>&1; then
     echo "ERROR: the Tallow engine is not on PATH." >&2
     echo "The engine lives in the PRIVATE repository aamirmanisa/tallowsphere;" >&2
@@ -42,7 +46,7 @@ prepare() {
 }
 
 build() {
-  cd "$pkgname-$pkgver"
+  cd "Tallow-Copy-$_commit"
   # Build in a subdirectory: `tallow build` writes the executable next to the
   # source, and the repo root already has a `tallowx` launcher script that must
   # not be overwritten by a 110 MB ELF.
@@ -56,7 +60,7 @@ build() {
 }
 
 check() {
-  cd "$pkgname-$pkgver"
+  cd "Tallow-Copy-$_commit"
   # The interpreter suite needs no native build; the native suite rebuilds the
   # binary and exercises --delete, --checksum and --resume end to end.
   bash tests/smoke.sh
@@ -64,7 +68,7 @@ check() {
 }
 
 package() {
-  cd "$pkgname-$pkgver"
+  cd "Tallow-Copy-$_commit"
   install -Dm755 build/tallowx "$pkgdir/usr/bin/tallowx"
   install -Dm644 tallowx.tl      "$pkgdir/usr/share/tallowx/tallowx.tl"
   install -Dm644 README.md       "$pkgdir/usr/share/doc/$pkgname/README.md"
