@@ -1,16 +1,18 @@
 name: ci
 
 # This repository is packaging + assets only: the implementation (tallowx.tl)
-# is built by the Tallow engine, and the engine is a PRIVATE repository
-# (aamirmanisa/tallowsphere). The previous version fetched the engine installer
-# from `raw.githubusercontent.com/.../main/install.sh` and piped it to bash.
-# Measured 2026-10-31: that URL returns HTTP 404 for a private repository, so
-# BOTH jobs failed before running a single test, and even had it resolved it
-# would have installed an unpinned "latest" engine.
+# is built by the Tallow engine (aamirmanisa/tallowsphere).
 #
-# The fix: acquire the engine by building a PINNED COMMIT with a read-scoped
-# token, once, and share the result. The engine commit is a variable, not
-# "latest": a green run now identifies exactly which engine produced it.
+# The engine is PUBLIC as of 2026-11-02, so the engine checkout is an ordinary
+# anonymous clone of a pinned commit and needs no token. The token existed
+# because the repository was private; before that this file fetched install.sh
+# from raw.githubusercontent.com and piped it to bash — a URL that returned
+# HTTP 404 for a private repository, and that would have installed an unpinned
+# "latest" engine had it resolved.
+#
+# What still matters is the PIN. The engine commit is a variable, not "latest":
+# a green run identifies exactly which engine produced it, and bumping it is a
+# deliberate change made in the same commit that re-measures the tool.
 
 on:
   push:
@@ -23,10 +25,10 @@ permissions:
 
 env:
   TALLOW_ENGINE_REPO: aamirmanisa/tallowsphere
-  # The 1.6.0 release commit. Bump deliberately, in the same change that
-  # re-measures the tool against it.
-  TALLOW_ENGINE_SHA: 965a4bae9df3da5b2758535989b64c13576e39af
-  TALLOW_ENGINE_VERSION: "1.6.0"
+  # The 1.7.0 release commit (tag v1.7.0). Bump deliberately, in the same change
+  # that re-measures the tool against it.
+  TALLOW_ENGINE_SHA: 24504a4b528e2de4b11f7322a3d879b36a02362e
+  TALLOW_ENGINE_VERSION: "1.7.0"
 
 jobs:
   build-engine:
@@ -34,20 +36,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
-      - name: secrets.ENGINE_REPO_TOKEN is required (tallowsphere is private)
-        env:
-          ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN }}
-        run: |
-          if [ -z "$ENGINE_REPO_TOKEN" ]; then
-            echo "::error::secrets.ENGINE_REPO_TOKEN is unset. tallowsphere is private; the engine cannot be fetched or built without it."
-            exit 1
-          fi
-
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ env.TALLOW_ENGINE_REPO }}
           ref: ${{ env.TALLOW_ENGINE_SHA }}
-          token: ${{ secrets.ENGINE_REPO_TOKEN }}
           path: engine
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87

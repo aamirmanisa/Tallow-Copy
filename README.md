@@ -11,7 +11,7 @@
 <sub><a href="#quickstart">Quickstart</a> &nbsp;·&nbsp; <a href="#what-the-run-proves">What it proves</a> &nbsp;·&nbsp; <a href="#commands">Commands</a> &nbsp;·&nbsp; <a href="#benchmarks">Benchmarks</a> &nbsp;·&nbsp; <a href="#what-is-not-guaranteed">Limits</a> &nbsp;·&nbsp; <a href="#repository">Repository</a></sub>
 
 ![version 0.2.0](https://img.shields.io/badge/version-0.2.0-E39B3E?style=flat-square&labelColor=171513)
-![engine 1.5.5+](https://img.shields.io/badge/engine-1.5.5%2B-E39B3E?style=flat-square&labelColor=171513)
+![engine 1.7.0+](https://img.shields.io/badge/engine-1.7.0%2B-E39B3E?style=flat-square&labelColor=171513)
 ![licence MIT](https://img.shields.io/badge/licence-MIT-6E675D?style=flat-square&labelColor=171513)
 [![ci](https://github.com/aamirmanisa/Tallow-Copy/actions/workflows/ci.yml/badge.svg)](https://github.com/aamirmanisa/Tallow-Copy/actions/workflows/ci.yml)
 
@@ -176,6 +176,11 @@ the first released tarball with them (the primitives landed in `8883409`). On an
 flag fails loudly (`undefined function: fs.copy_range`) and the suite skips the resume cases with a
 message instead of pretending they ran. Every other path — copy, verify, move, plan — works on any
 1.5.x engine.
+
+Measured against the current release, **1.7.0**, on 2026-11-02: `tests/smoke.sh` passes on the
+shipped interpreter plane. `tests/native.sh` skips with `the native backend has no lowering for
+Array.push`, which is the documented state of the compiled plane rather than a regression — the
+script exists to make exactly that distinction visible instead of failing.
 
 ## Benchmarks
 
