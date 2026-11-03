@@ -8,7 +8,7 @@
 
 **A verified copy/move tool for local disks and mounted NAS storage, written in [Tallow](https://github.com/aamirmanisa/Tallow-Language).**
 
-> **Scope:** tallyx is a command-line tool, and this repository ships only CLIs — no GUI,
+> **Scope:** tallowx is a command-line tool, and this repository ships only CLIs — no GUI,
 > no desktop application. The Tauri app that once lived beside it is a frozen line, not a
 > direction.
 
