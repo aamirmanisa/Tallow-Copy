@@ -53,6 +53,44 @@ makepkg -si` for the tool itself — the PKGBUILD refuses to build without the e
 failing halfway. Without `liblzma`/`libbz2` the installer's probe fails to link and exits non-zero
 (found the hard way in this repo's CI).
 
+### macOS and Windows
+
+The engine ships a build for each platform, and nothing in `tallowx.tl` is
+Linux-specific — the one primitive people expect to be a syscall,
+`fs.copy_range`, is a seek/read/append loop in the engine rather than
+`copy_file_range(2)`. What differs is only how you install the engine:
+
+```console
+# macOS (arm64 or x86_64) — download the release, verify the sidecar, put it on PATH
+$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.0/tallow-macos-aarch64-1.7.0.tar.gz
+$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.0/tallow-macos-aarch64-1.7.0.tar.gz.sha256
+$ shasum -a 256 -c tallow-macos-aarch64-1.7.0.tar.gz.sha256
+$ tar xzf tallow-macos-aarch64-1.7.0.tar.gz && sudo mv tallow /usr/local/bin/
+
+# Windows (x86_64), in Git Bash or PowerShell
+$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.0/tallow-windows-x86_64-1.7.0.zip
+$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.0/tallow-windows-x86_64-1.7.0.zip.sha256
+$ certutil -hashfile tallow-windows-x86_64-1.7.0.zip SHA256   # compare with the sidecar
+$ unzip tallow-windows-x86_64-1.7.0.zip -d tallow && setx PATH "%PATH%;%CD%\tallow"
+```
+
+There is no Homebrew formula and no Windows package yet — the archives above are
+the distribution. `packaging/arch` is the only package recipe in this repository.
+
+## Platforms
+
+| platform | engine artifact | measured by |
+|---|---|---|
+| linux-x86_64 | `tallow-linux-x86_64-1.7.0.tar.gz` | `smoke-matrix` CI job, on the published asset |
+| linux-aarch64 | `tallow-linux-aarch64-1.7.0.tar.gz` | local run of `tests/smoke.sh`, 2026-11-02 |
+| macos-aarch64 | `tallow-macos-aarch64-1.7.0.tar.gz` | `smoke-matrix` CI job, on the published asset |
+| macos-x86_64 | `tallow-macos-x86_64-1.7.0.tar.gz` | not run yet |
+| windows-x86_64 | `tallow-windows-x86_64-1.7.0.zip` | `smoke-matrix` CI job, on the published asset |
+
+The `smoke-matrix` job downloads the asset it tests, verifies it against the
+release's own `.sha256` sidecar, and only then runs `tests/smoke.sh` — so a green
+row means the artifact a user downloads, not a rebuild of the commit.
+
 ```console
 $ git clone https://github.com/aamirmanisa/tallow-copy tallowx && cd tallowx
 $ ./tallowx plan  SRC DST     # what would be copied; writes nothing
@@ -177,8 +215,10 @@ flag fails loudly (`undefined function: fs.copy_range`) and the suite skips the 
 message instead of pretending they ran. Every other path — copy, verify, move, plan — works on any
 1.5.x engine.
 
-Measured against the current release, **1.7.0**, on 2026-11-02: `tests/smoke.sh` passes on the
-shipped interpreter plane. `tests/native.sh` skips with `the native backend has no lowering for
+Measured against the current release, **1.7.0**, on 2026-11-02, on **linux-aarch64**: `tests/smoke.sh`
+passes on the shipped interpreter plane. The same suite runs against the published x86_64, macOS and
+Windows artifacts in the `smoke-matrix` CI job — see the platform table above for which rows are
+measured rather than expected. `tests/native.sh` skips with `the native backend has no lowering for
 Array.push`, which is the documented state of the compiled plane rather than a regression — the
 script exists to make exactly that distinction visible instead of failing.
 
