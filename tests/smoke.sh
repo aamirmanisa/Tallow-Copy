@@ -153,14 +153,25 @@ printf 'cached\n' > "$ROOT/mdst/pdfcache/x.tmp"
 
 XC="run"
 run plan "$ROOT/msrc" "$ROOT/mdst" --delete
-# Count only files that exist: a `find` that walks into a path removed mid-run
-# prints an error to stderr, and `wc -l` would count that error line as a file —
-# which is how this check reported a write on macOS while the tree was intact.
-plan_files="$(find "$ROOT/mdst" -type f 2>/dev/null | wc -l)"
-if [ "$plan_files" = 4 ]; then
+# Snapshot the destination as "path + POSIX cksum" for every file and compare the
+# two snapshots. A bare file count cannot distinguish "wrote nothing" from "wrote
+# one and deleted one", cannot see a rewritten file, and counts a find error line
+# on stderr as a file - all three of which made this check accuse macOS of a
+# write it could not name. cksum is POSIX, so the same snapshot works on GNU and
+# BSD userlands; the diff on failure names the exact path that changed.
+snapshot() {
+    ( cd "$1" || return 1
+      find . -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do
+          printf '%s %s\n' "$f" "$(cksum < "$f" 2>/dev/null | cut -d' ' -f1-2)"
+      done )
+}
+before="$(snapshot "$ROOT/mdst")"
+run plan "$ROOT/msrc" "$ROOT/mdst" --delete
+after="$(snapshot "$ROOT/mdst")"
+if [ "$before" = "$after" ]; then
     pass "--delete in plan mode deletes nothing"
 else
-    fail "plan --delete wrote to the destination (found $plan_files file(s): $(find "$ROOT/mdst" 2>/dev/null | tr '\n' ' '))"
+    fail "plan --delete changed the destination"$'\n'"$(diff <(printf '%s\n' "$before") <(printf '%s\n' "$after") | head -20)"
 fi
 run copy "$ROOT/msrc" "$ROOT/mdst" --delete --exclude '*.tmp'
 if [ ! -e "$ROOT/mdst/sub/gone.txt" ] && [ ! -e "$ROOT/mdst/stale" ]; then pass "--delete removed extras and the emptied directory"; else fail "--delete left extras behind"; fi
