@@ -79,17 +79,22 @@ the distribution. `packaging/arch` is the only package recipe in this repository
 
 ## Platforms
 
-| platform | engine artifact | measured by |
-|---|---|---|
-| linux-x86_64 | `tallow-linux-x86_64-1.7.0.tar.gz` | `smoke-matrix` CI job, on the published asset |
-| linux-aarch64 | `tallow-linux-aarch64-1.7.0.tar.gz` | local run of `tests/smoke.sh`, 2026-11-02 |
-| macos-aarch64 | `tallow-macos-aarch64-1.7.0.tar.gz` | `smoke-matrix` CI job, on the published asset |
-| macos-x86_64 | `tallow-macos-x86_64-1.7.0.tar.gz` | not run yet |
-| windows-x86_64 | `tallow-windows-x86_64-1.7.0.zip` | `smoke-matrix` CI job, on the published asset |
+| platform | engine artifact | smoke suite | measured |
+|---|---|---|---|
+| linux-x86_64 | `tallow-linux-x86_64-1.7.0.tar.gz` | pass | CI, published asset |
+| linux-aarch64 | `tallow-linux-aarch64-1.7.0.tar.gz` | pass | local, published asset |
+| macos-aarch64 | `tallow-macos-aarch64-1.7.0.tar.gz` | pass | CI, published asset |
+| macos-x86_64 | `tallow-macos-x86_64-1.7.0.tar.gz` | not run | — |
+| windows-x86_64 | `tallow-windows-x86_64-1.7.0.zip` | pass | CI, published asset |
 
 The `smoke-matrix` job downloads the asset it tests, verifies it against the
 release's own `.sha256` sidecar, and only then runs `tests/smoke.sh` — so a green
-row means the artifact a user downloads, not a rebuild of the commit.
+row means the artifact a user downloads, not a rebuild of the commit. The three
+CI rows above are run 41553888466 on 2026-11-02, all seven jobs green.
+
+`macos-x86_64` is the one gap: the release ships that artifact, but no runner here
+executes x86_64 macOS, and the matrix tests the arm64 build on an arm64 runner.
+Building it from the pinned commit proves it links; running it is unverified.
 
 ```console
 $ git clone https://github.com/aamirmanisa/tallow-copy tallowx && cd tallowx
