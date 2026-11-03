@@ -110,7 +110,12 @@ jobs:
     # PUBLISHED asset for the pinned version, verifies it against the release's
     # own sha256 sidecar, and only then runs the same smoke suite. A rebuild would
     # prove the commit compiles; this proves the release is usable.
-    needs: build-engine
+    #
+    # No `needs: build-engine`: these jobs consume a published artifact, not the
+    # artifact that job builds. Depending on it made four download-and-run jobs
+    # wait ~30 minutes behind a from-scratch engine compile they never touched.
+    # build-engine still runs, because "the pinned commit compiles" is worth
+    # proving — it just no longer gates anything that does not need it.
     strategy:
       fail-fast: false
       matrix:
