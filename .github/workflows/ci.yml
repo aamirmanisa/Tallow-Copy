@@ -123,6 +123,13 @@ jobs:
             os: macos-15
             asset: tallow-macos-aarch64-1.7.0.tar.gz
             binary: tallow
+          - label: macos-x86_64
+            # macos-13 is the x86_64 image; macos-15 is arm64 and cannot execute
+            # the x86_64 Mach-O, so the arm64 entry above and this one together
+            # cover both macOS artifacts the release ships.
+            os: macos-13
+            asset: tallow-macos-x86_64-1.7.0.tar.gz
+            binary: tallow
           - label: windows-x86_64
             os: windows-latest
             asset: tallow-windows-x86_64-1.7.0.zip
