@@ -153,7 +153,15 @@ printf 'cached\n' > "$ROOT/mdst/pdfcache/x.tmp"
 
 XC="run"
 run plan "$ROOT/msrc" "$ROOT/mdst" --delete
-[ "$(find "$ROOT/mdst" -type f | wc -l)" = 4 ] && pass "--delete in plan mode deletes nothing" || fail "plan --delete wrote to the destination"
+# Count only files that exist: a `find` that walks into a path removed mid-run
+# prints an error to stderr, and `wc -l` would count that error line as a file —
+# which is how this check reported a write on macOS while the tree was intact.
+plan_files="$(find "$ROOT/mdst" -type f 2>/dev/null | wc -l)"
+if [ "$plan_files" = 4 ]; then
+    pass "--delete in plan mode deletes nothing"
+else
+    fail "plan --delete wrote to the destination (found $plan_files file(s): $(find "$ROOT/mdst" 2>/dev/null | tr '\n' ' '))"
+fi
 run copy "$ROOT/msrc" "$ROOT/mdst" --delete --exclude '*.tmp'
 if [ ! -e "$ROOT/mdst/sub/gone.txt" ] && [ ! -e "$ROOT/mdst/stale" ]; then pass "--delete removed extras and the emptied directory"; else fail "--delete left extras behind"; fi
 [ -f "$ROOT/mdst/pdfcache/x.tmp" ] && pass "--exclude kept the matching path" || fail "--exclude did not protect the path"
