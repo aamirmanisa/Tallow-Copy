@@ -102,6 +102,85 @@ jobs:
       - name: End-to-end smoke tests
         run: ./tests/smoke.sh
 
+  smoke-matrix:
+    name: Published engine (${{ matrix.label }})
+    # The Linux lane above builds the pinned COMMIT, which proves the pin is
+    # buildable. This job proves the other half: that the artifact users actually
+    # download runs the tool, on all three operating systems. It fetches the
+    # PUBLISHED asset for the pinned version, verifies it against the release's
+    # own sha256 sidecar, and only then runs the same smoke suite. A rebuild would
+    # prove the commit compiles; this proves the release is usable.
+    needs: build-engine
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            os: ubuntu-24.04
+            asset: tallow-linux-x86_64-1.7.0.tar.gz
+            binary: tallow
+          - label: macos-aarch64
+            os: macos-15
+            asset: tallow-macos-aarch64-1.7.0.tar.gz
+            binary: tallow
+          - label: windows-x86_64
+            os: windows-latest
+            asset: tallow-windows-x86_64-1.7.0.zip
+            binary: tallow.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Fetch and verify the published engine
+        shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
+          VERSION: ${{ env.TALLOW_ENGINE_VERSION }}
+          REPO: ${{ env.TALLOW_ENGINE_REPO }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, tarfile, urllib.request, zipfile
+
+          asset = os.environ["ASSET"]
+          version = os.environ["VERSION"]
+          repo = os.environ["REPO"]
+          base = f"https://github.com/{repo}/releases/download/v{version}"
+
+          def fetch(url, dest):
+              with urllib.request.urlopen(url, timeout=120) as r, open(dest, "wb") as f:
+                  while chunk := r.read(1 << 20):
+                      f.write(chunk)
+
+          fetch(f"{base}/{asset}", asset)
+          fetch(f"{base}/{asset}.sha256", asset + ".sha256")
+
+          want = open(asset + ".sha256").read().split()[0].lower()
+          got = hashlib.sha256(open(asset, "rb").read()).hexdigest()
+          if want != got:
+              raise SystemExit(f"checksum mismatch: sidecar {want}, downloaded {got}")
+          print(f"sha256 ok  {asset}  {got}")
+
+          os.makedirs("engine", exist_ok=True)
+          if asset.endswith(".zip"):
+              with zipfile.ZipFile(asset) as z:
+                  z.extractall("engine")
+          else:
+              with tarfile.open(asset) as t:
+                  t.extractall("engine")
+          print("extracted:", sorted(os.listdir("engine")))
+          PY
+      - name: Interpreter plane (smoke) against the published engine
+        shell: bash
+        env:
+          BINARY: ${{ matrix.binary }}
+        run: |
+          set -euo pipefail
+          TALLOW="$(pwd)/engine/${BINARY}"
+          test -x "$TALLOW" || { echo "::error::no executable at $TALLOW"; exit 1; }
+          "$TALLOW" --version
+          TALLOW="$TALLOW" bash tests/smoke.sh
+
   native:
     name: Native plane
     needs: build-engine
