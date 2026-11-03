@@ -52,11 +52,20 @@ build() {
   # not be overwritten by a 110 MB ELF.
   mkdir -p build
   cp tallowx.tl build/
-  ( cd build && tallow build tallowx.tl --release )
-  ./build/tallowx --help >/dev/null || {
-    echo "ERROR: the built binary does not run" >&2
-    exit 1
-  }
+  # The compiled plane cannot lower Array.push as of engine 1.7.0, so `tallow
+  # build` refuses this program BY NAME. That is not a build failure: the
+  # launcher prefers a native binary when one exists and runs the interpreter
+  # otherwise. Keep the fast path when it builds; ship the launcher when it does
+  # not, and say which.
+  if ( cd build && tallow build tallowx.tl --release >build.log 2>&1 ); then
+    ./build/tallowx --help >/dev/null || {
+      echo "ERROR: the built binary does not run" >&2
+      exit 1
+    }
+  else
+    echo "note: native plane refused - $(tail -1 build/build.log)"
+    rm -f build/tallowx
+  fi
 }
 
 check() {
@@ -69,8 +78,19 @@ check() {
 
 package() {
   cd "Tallow-Copy-$_commit"
-  install -Dm755 build/tallowx "$pkgdir/usr/bin/tallowx"
-  install -Dm644 tallowx.tl      "$pkgdir/usr/share/tallowx/tallowx.tl"
+  # The launcher resolves tallowx.tl (and any native build) relative to its own
+  # directory, so both live in /usr/lib/tallowx and /usr/bin/tallowx is a PATH
+  # entry. This is what lets one package work on either plane.
+  install -Dm755 tallowx    "$pkgdir/usr/lib/tallowx/tallowx"
+  install -Dm644 tallowx.tl "$pkgdir/usr/lib/tallowx/tallowx.tl"
+  if [ -x build/tallowx ]; then
+    install -Dm755 build/tallowx "$pkgdir/usr/lib/tallowx/build/tallowx"
+  fi
+  mkdir -p "$pkgdir/usr/bin"
+  printf '%s\n' '#!/bin/sh' \
+    'exec /usr/lib/tallowx/tallowx "$@"' > "$pkgdir/usr/bin/tallowx"
+  chmod 755 "$pkgdir/usr/bin/tallowx"
   install -Dm644 README.md       "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 LICENSE         "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
 }

@@ -27,11 +27,18 @@ rather than letting `tallow build` fail somewhere in the middle of a compile.
 
 ## What the package installs
 
-- `/usr/bin/tallowx` — the compiled binary (it does not need the engine at run
-  time; it links the runtime archive statically)
-- `/usr/share/tallowx/tallowx.tl` — the source, so the installed tool can be read
+- `/usr/bin/tallowx` — a two-line PATH entry that execs the launcher
+- `/usr/lib/tallowx/tallowx` — the launcher; it prefers a native binary and runs
+  the interpreter otherwise
+- `/usr/lib/tallowx/tallowx.tl` — the source, so the installed tool can be read
   and rebuilt
+- `/usr/lib/tallowx/build/tallowx` — present only when the native build succeeded
 - licence and README under the usual Arch paths
+
+As of engine 1.7.0 the compiled plane cannot lower `Array.push`, so `tallow
+build` refuses this program by name and `build()` keeps going: the package ships
+the launcher and runs on the interpreter plane. The native binary is installed
+when a future engine can build it, and the launcher picks it up automatically.
 
 ## Why `check()` runs both suites
 
