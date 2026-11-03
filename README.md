@@ -15,7 +15,7 @@
 <sub><a href="#quickstart">Quickstart</a> &nbsp;·&nbsp; <a href="#what-the-run-proves">What it proves</a> &nbsp;·&nbsp; <a href="#commands">Commands</a> &nbsp;·&nbsp; <a href="#benchmarks">Benchmarks</a> &nbsp;·&nbsp; <a href="#what-is-not-guaranteed">Limits</a> &nbsp;·&nbsp; <a href="#repository">Repository</a></sub>
 
 ![version 0.2.0](https://img.shields.io/badge/version-0.2.0-E39B3E?style=flat-square&labelColor=171513)
-![engine 1.7.0+](https://img.shields.io/badge/engine-1.7.0%2B-E39B3E?style=flat-square&labelColor=171513)
+![engine 1.7.1+](https://img.shields.io/badge/engine-1.7.1%2B-E39B3E?style=flat-square&labelColor=171513)
 ![licence MIT](https://img.shields.io/badge/licence-MIT-6E675D?style=flat-square&labelColor=171513)
 [![ci](https://github.com/aamirmanisa/Tallow-Copy/actions/workflows/ci.yml/badge.svg)](https://github.com/aamirmanisa/Tallow-Copy/actions/workflows/ci.yml)
 
@@ -66,16 +66,16 @@ Linux-specific — the one primitive people expect to be a syscall,
 
 ```console
 # macOS (arm64 or x86_64) — download the release, verify the sidecar, put it on PATH
-$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.0/tallow-macos-aarch64-1.7.0.tar.gz
-$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.0/tallow-macos-aarch64-1.7.0.tar.gz.sha256
-$ shasum -a 256 -c tallow-macos-aarch64-1.7.0.tar.gz.sha256
-$ tar xzf tallow-macos-aarch64-1.7.0.tar.gz && sudo mv tallow /usr/local/bin/
+$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.1/tallow-macos-aarch64-1.7.1.tar.gz
+$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.1/tallow-macos-aarch64-1.7.1.tar.gz.sha256
+$ shasum -a 256 -c tallow-macos-aarch64-1.7.1.tar.gz.sha256
+$ tar xzf tallow-macos-aarch64-1.7.1.tar.gz && sudo mv tallow /usr/local/bin/
 
 # Windows (x86_64), in Git Bash or PowerShell
-$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.0/tallow-windows-x86_64-1.7.0.zip
-$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.0/tallow-windows-x86_64-1.7.0.zip.sha256
-$ certutil -hashfile tallow-windows-x86_64-1.7.0.zip SHA256   # compare with the sidecar
-$ unzip tallow-windows-x86_64-1.7.0.zip -d tallow && setx PATH "%PATH%;%CD%\tallow"
+$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.1/tallow-windows-x86_64-1.7.1.zip
+$ curl -fLO https://github.com/aamirmanisa/tallowsphere/releases/download/v1.7.1/tallow-windows-x86_64-1.7.1.zip.sha256
+$ certutil -hashfile tallow-windows-x86_64-1.7.1.zip SHA256   # compare with the sidecar
+$ unzip tallow-windows-x86_64-1.7.1.zip -d tallow && setx PATH "%PATH%;%CD%\tallow"
 ```
 
 There is no Homebrew formula and no Windows package yet — the archives above are
@@ -85,11 +85,11 @@ the distribution. `packaging/arch` is the only package recipe in this repository
 
 | platform | engine artifact | smoke suite | measured |
 |---|---|---|---|
-| linux-x86_64 | `tallow-linux-x86_64-1.7.0.tar.gz` | pass | CI, published asset |
-| linux-aarch64 | `tallow-linux-aarch64-1.7.0.tar.gz` | pass | local, published asset |
-| macos-aarch64 | `tallow-macos-aarch64-1.7.0.tar.gz` | pass | CI, published asset |
-| macos-x86_64 | `tallow-macos-x86_64-1.7.0.tar.gz` | not verified | matrix entry exists (`macos-13`), no verdict recorded |
-| windows-x86_64 | `tallow-windows-x86_64-1.7.0.zip` | pass | CI, published asset |
+| linux-x86_64 | `tallow-linux-x86_64-1.7.1.tar.gz` | pass | CI, published asset |
+| linux-aarch64 | `tallow-linux-aarch64-1.7.1.tar.gz` | pass | local, published asset |
+| macos-aarch64 | `tallow-macos-aarch64-1.7.1.tar.gz` | pass | CI, published asset |
+| macos-x86_64 | `tallow-macos-x86_64-1.7.1.tar.gz` | not verified | matrix entry exists (`macos-13`), no verdict recorded |
+| windows-x86_64 | `tallow-windows-x86_64-1.7.1.zip` | pass | CI, published asset |
 
 The `smoke-matrix` job downloads the asset it tests, verifies it against the
 release's own `.sha256` sidecar, and only then runs `tests/smoke.sh` — so a green
@@ -226,7 +226,7 @@ flag fails loudly (`undefined function: fs.copy_range`) and the suite skips the 
 message instead of pretending they ran. Every other path — copy, verify, move, plan — works on any
 1.5.x engine.
 
-Measured against the current release, **1.7.0**, on 2026-11-02, on **linux-aarch64**: `tests/smoke.sh`
+Measured against the current release, **1.7.1**, on 2026-11-03, on **linux-aarch64**: `tests/smoke.sh`
 passes on the shipped interpreter plane. The same suite runs against the published x86_64, macOS and
 Windows artifacts in the `smoke-matrix` CI job — see the platform table above for which rows are
 measured rather than expected. `tests/native.sh` skips with `the native backend has no lowering for
