@@ -1,0 +1,37 @@
+{
+  "dataset": "256 MiB file, 1 MiB changed at offset 100 MiB",
+  "runs": 3,
+  "xdelta_patch_bytes": 6292806,
+  "rows": [
+    {
+      "tool": "rsync -a --no-whole-file",
+      "runs_ms": [
+        1016.7,
+        892.4,
+        968.7
+      ],
+      "median_ms": 968.7,
+      "integrity_ok": true
+    },
+    {
+      "tool": "tallowx copy",
+      "runs_ms": [
+        1331.0,
+        1315.5,
+        1274.9
+      ],
+      "median_ms": 1315.5,
+      "integrity_ok": true
+    },
+    {
+      "tool": "xdelta3 patch+apply",
+      "runs_ms": [
+        3509.1,
+        3564.9,
+        3350.4
+      ],
+      "median_ms": 3509.1,
+      "integrity_ok": true
+    }
+  ]
+}
