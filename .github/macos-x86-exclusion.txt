@@ -1,0 +1,8 @@
+# CI targets that are deliberately not run, with a reason and a review date.
+#
+# Format: one entry per line, `target | reason | review-by YYYY-MM-DD`.
+# The date is not decorative: ci.yml runs scripts/check_exclusions.py, which
+# fails when an entry is past its review date. An exclusion that can never
+# expire is how a gap becomes permanent.
+
+macos-x86_64 | `macos-13`, the free Intel macOS image, was retired by GitHub; `macos-15-intel` and `macos-26-intel` are large runners that this account does not have, and running the x86_64 archive on `macos-15` would be Rosetta, not Intel. The asset is still built, checksummed, signed and published; only the run-it-on-Intel smoke check is waived. | 2027-02-01

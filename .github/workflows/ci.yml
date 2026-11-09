@@ -128,13 +128,16 @@ jobs:
             os: macos-15
             ext: tar.gz
             binary: tallow
-          - label: macos-x86_64
-            # macos-13 is the x86_64 image; macos-15 is arm64 and cannot execute
-            # the x86_64 Mach-O, so the arm64 entry above and this one together
-            # cover both macOS artifacts the release ships.
-            os: macos-13
-            ext: tar.gz
-            binary: tallow
+          # macos-x86_64 is NOT in this matrix. `macos-13`, the free Intel
+          # image, was retired; the Intel images that remain (`macos-15-intel`,
+          # `macos-26-intel`) are large runners, which this account does not
+          # have. Measured 2026-11-08: with `macos-13` the job sat queued with
+          # no runner for over 90 minutes while its arm64 sibling took a runner
+          # in 3 seconds and passed. Pointing the label at `macos-15` would run
+          # the x86_64 binary under Rosetta and prove nothing about Intel.
+          # The exclusion is registered in .github/macos-x86-exclusion.txt with
+          # an expiry; the `Excluded targets are still in date` step fails when
+          # it lapses, so this cannot rot into a permanent silent gap.
           - label: windows-x86_64
             os: windows-latest
             ext: zip
@@ -143,6 +146,12 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Excluded targets are still in date
+        # An exclusion without a deadline is how a gap becomes permanent. This
+        # fails once the recorded review date passes, so the decision is
+        # remade rather than forgotten.
+        shell: bash
+        run: python3 scripts/check_exclusions.py
       - name: Fetch and verify the published engine
         shell: bash
         env:
