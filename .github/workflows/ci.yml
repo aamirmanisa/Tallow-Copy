@@ -27,8 +27,8 @@ env:
   TALLOW_ENGINE_REPO: aamirmanisa/tallowsphere
   # The 1.7.1 release commit (tag v1.7.1). Bump deliberately, in the same change
   # that re-measures the tool against it.
-  TALLOW_ENGINE_SHA: 327a116f039df9b0fbf55c742082e3b81121d334
-  TALLOW_ENGINE_VERSION: "1.7.1"
+  TALLOW_ENGINE_SHA: 56afd3dc4193df09e7331d4c1abea0efbda49e14   # v1.7.2
+  TALLOW_ENGINE_VERSION: "1.7.2"
 
 jobs:
   build-engine:
